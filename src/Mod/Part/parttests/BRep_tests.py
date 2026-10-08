@@ -4,9 +4,32 @@ import FreeCAD as App
 import Part
 
 import unittest
+import math
 
 
 class BRepTests(unittest.TestCase):
+
+    def testAdaptiveVolumeProperties(self):
+        outer = Part.makeBox(10, 10, 10)
+        hole = Part.makeCylinder(2, 10, App.Vector(5, 5, 0))
+        solid = outer.cut(hole).Solids[0]
+        solid.translate(App.Vector(1234, -456, 78))
+        volume, error = solid.getVolumeProperties(1e-7)
+        self.assertAlmostEqual(volume, 1000 - 40 * math.pi, places=6)
+        self.assertTrue(math.isfinite(error))
+        self.assertGreaterEqual(error, 0)
+        self.assertLessEqual(error, 1e-7)
+        solid.reverse()
+        self.assertAlmostEqual(solid.getVolumeProperties()[0], -volume, places=6)
+
+    def testAdaptiveVolumeRejectsInvalidArguments(self):
+        box = Part.makeBox(1, 2, 3)
+        for eps in (0, -1, 0.01, float("nan"), float("inf")):
+            with self.assertRaises(ValueError):
+                box.getVolumeProperties(eps)
+        for shape in (Part.Shape(), box.Faces[0], Part.makeCompound([box])):
+            with self.assertRaises(ValueError):
+                shape.getVolumeProperties()
 
     def testProject(self):
         """

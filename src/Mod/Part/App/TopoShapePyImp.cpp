@@ -22,6 +22,7 @@
  *                                                                         *
  ***************************************************************************/
 
+#include <cmath>
 #include <limits>
 #include <sstream>
 #include <boost/regex.hpp>
@@ -2902,6 +2903,30 @@ Py::Float TopoShapePy::getVolume() const
     GProp_GProps props;
     BRepGProp::VolumeProperties(shape, props);
     return Py::Float(props.Mass());
+}
+
+PyObject* TopoShapePy::getVolumeProperties(PyObject* args) const
+{
+    double eps = 1e-6;
+    if (!PyArg_ParseTuple(args, "|d", &eps)) {
+        return nullptr;
+    }
+    if (!std::isfinite(eps) || eps <= 0.0 || eps > 0.001) {
+        PyErr_SetString(PyExc_ValueError, "eps must be finite and in (0, 0.001]");
+        return nullptr;
+    }
+    const TopoDS_Shape& shape = getTopoShapePtr()->getShape();
+    if (shape.IsNull() || shape.ShapeType() != TopAbs_SOLID) {
+        PyErr_SetString(PyExc_ValueError, "getVolumeProperties requires one solid");
+        return nullptr;
+    }
+    PY_TRY
+    {
+        GProp_GProps props;
+        const double error = BRepGProp::VolumeProperties(shape, props, eps);
+        return Py_BuildValue("(dd)", props.Mass(), error);
+    }
+    PY_CATCH_OCC
 }
 
 PyObject* TopoShapePy::getElementHistory(PyObject* args) const
