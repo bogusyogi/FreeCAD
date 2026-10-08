@@ -180,6 +180,7 @@ grep -Fq 'accessibleElements.take(axid)' "$source_root/src/gui/accessible/qacces
     -DINSTALL_MKSPECSDIR=lib/qt6/mkspecs \
     -DINSTALL_EXAMPLESDIR=share/doc/qt6/examples \
     -DFEATURE_system_sqlite=ON \
+    -DFEATURE_cxx20_format=OFF \
     -DFEATURE_framework=OFF \
     -DFEATURE_gssapi=OFF \
     -DFEATURE_enable_new_dtags=OFF \
