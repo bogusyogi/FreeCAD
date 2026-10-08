@@ -201,6 +201,7 @@ jobs:
         uses: microsoft/setup-msbuild@30375c66a4eea26614e0d39710365f22f8b0af57 # v3.0.0
 
       - name: Compiling sources
+        id: compile
         if: "!inputs.skipBuild"
         run: |
           cd $env:builddir
@@ -221,6 +222,31 @@ jobs:
         if: "!inputs.skipBuild"
         run: |
           . ${{ env.builddir }}\bin\FreeCADCmd -t 0 # 2>&1 | tee -filepath ${{ env.logdir }}\integrationTests.log
+
+      - name: Headless adaptive roundtrips
+        if: "!inputs.skipBuild && github.repository == 'bogusyogi/FreeCAD'"
+        timeout-minutes: 10
+        run: >
+          python contrib/headless/e2e.py
+          --freecad "${{ env.builddir }}bin/FreeCADCmd.exe"
+          --out "${{ env.logdir }}headless-e2e"
+          --require-adaptive
+
+      - name: Retain Windows test runtime
+        if: >-
+          always() && steps.compile.outcome == 'success'
+          && github.repository == 'bogusyogi/FreeCAD'
+          && github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: FreeCAD-Windows-test-runtime-${{ github.sha }}
+          retention-days: 7
+          path: |
+            ${{ env.builddir }}bin/
+            ${{ env.builddir }}Mod/
+            ${{ env.builddir }}Ext/
+            ${{ env.builddir }}data/
+            ${{ env.builddir }}resources/
 
       - name: Save Compiler Cache
         id: cache-save
