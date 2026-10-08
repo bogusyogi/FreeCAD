@@ -207,6 +207,10 @@ jobs:
         pixi run ccache -z
         pixi run ccache -p
 
+    - name: Set fork Mac deployment target before feature probes
+      if: github.repository == 'bogusyogi/FreeCAD' && github.event_name == 'workflow_dispatch' && runner.os == 'macOS' && !inputs.skipBuild
+      run: echo 'MACOSX_DEPLOYMENT_TARGET=13.3' >> "$GITHUB_ENV"
+
     - name: CMake Configure
       if: "!inputs.skipBuild"
       run: |
