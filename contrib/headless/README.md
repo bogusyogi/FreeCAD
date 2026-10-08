@@ -104,6 +104,9 @@ or insufficiently converged results. Use `--require-adaptive` with `run.py` or
 `e2e.py` to reject official binaries that lack this API. The rejection itself was
 verified on 26.3rc1. Without this option, older runtimes remain usable for file
 operations, but their default-integration volumes are explicitly unqualified.
+Strict E2E additionally extrudes a rational spline profile with independently
+integrated volume 5.40871353861894 mm³, checking native & STEP roundtrips.
+Default OCCT integration misses this synthetic fixture by about 0.6%.
 
 ## Scope of this first prototype
 

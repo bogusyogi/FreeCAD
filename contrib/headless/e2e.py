@@ -62,6 +62,10 @@ def main():
         raise RuntimeError("Revision changed the original document")
     run("invalid", "plate.py", {"hole_radius": 30}, success=False)
     run("assembly", "assembly.py", {}, 24 + 2 * math.pi, [11, 7, 4])
+    if args.require_adaptive:
+        # Integral of z(t) * x'(t) for the rational Bernstein profile.
+        # Default OCCT quadrature misses this by about 0.6%.
+        run("rational-profile", "rational_profile.py", {}, 5.40871353861894)
     for index, source in enumerate(args.step):
         run(f"import-{index}", "import_step.py", {"source": str(Path(source).resolve(strict=True))})
     (args.out / "e2e.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
