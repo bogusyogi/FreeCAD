@@ -49,6 +49,7 @@ class BRepTests(unittest.TestCase):
         # Independently integrated rational Bernstein polynomials, not mesh volume.
         self.assertAlmostEqual(volume, 5.40871353861894, places=6)
         self.assertLessEqual(error, 1e-8)
+        self.assertAlmostEqual(solid.Volume, 5.40871353861894, places=6)
 
     def testProject(self):
         """

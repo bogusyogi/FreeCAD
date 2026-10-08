@@ -89,7 +89,7 @@ Windows 1.1.4. Private fixtures are never uploaded to CI.
 | Headless documents opening hidden | Result visibility & fitted camera are persisted. Native generated plate, bead & assembly output were opened visually. |
 | Headless STEP import flattening assembly structure | Native `Import.insert`/`Import.export` replace flattened shape import/export. Component structure & placed bounds are checked on both roundtrips. |
 | STEP export dropping moved/rotated root placement | Transactional export normalization preserves world geometry & restores native placements. Nested placement fixture covers this. |
-| Default volume integration overstating a sculpted fixture by about 1.3% | New C++ `Shape.getVolumeProperties(eps)` exposes adaptive OCCT integration & its estimated relative error. Compiled-fork qualification is required; official 26.3rc1 still uses the inaccurate default API. |
+| Default volume integration overstating a sculpted fixture by about 1.3% | Native Volume, Measure & Mass Properties now request adaptive OCCT integration. New C++ `Shape.getVolumeProperties(eps)` additionally exposes its estimated relative error. Compiled-fork qualification is required; official 26.3rc1 still uses inaccurate default integration. |
 
 The crash matches [FreeCAD #30720](https://github.com/FreeCAD/FreeCAD/issues/30720)
 & Qt's [accessibility reference-count fix](https://github.com/qt/qtbase/commit/b1ed5f656f064e553b33752f8e87d2f5b9553e38).
@@ -105,7 +105,8 @@ or insufficiently converged results. Use `--require-adaptive` with `run.py` or
 verified on 26.3rc1. Without this option, older runtimes remain usable for file
 operations, but their default-integration volumes are explicitly unqualified.
 Strict E2E additionally extrudes a rational spline profile with independently
-integrated volume 5.40871353861894 mm³, checking native & STEP roundtrips.
+integrated volume 5.40871353861894 mm³, checking native Volume & Measure results
+plus native & STEP roundtrips. C++ coverage also checks Mass Properties.
 Default OCCT integration misses this synthetic fixture by about 0.6%.
 
 ## Scope of this first prototype

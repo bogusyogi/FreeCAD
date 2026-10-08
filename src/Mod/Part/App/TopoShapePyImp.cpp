@@ -2901,7 +2901,7 @@ Py::Float TopoShapePy::getVolume() const
         throw Py::RuntimeError("shape is invalid");
     }
     GProp_GProps props;
-    BRepGProp::VolumeProperties(shape, props);
+    BRepGProp::VolumeProperties(shape, props, 1e-6);
     return Py::Float(props.Mass());
 }
 

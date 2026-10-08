@@ -23,4 +23,13 @@ def build(params):
     result.LengthFwd = 1
     result.Solid = True
     doc.recompute()
+    if params.get("check_native_measurement"):
+        import Measure
+        measurement = Measure.Measurement()
+        measurement.addReference3D(result.Name, "")
+        expected = 5.40871353861894
+        if abs(result.Shape.Volume - expected) > 1e-6:
+            raise ValueError("Native Volume property uses inaccurate integration")
+        if abs(measurement.volume() - expected) > 1e-6:
+            raise ValueError("Native Measure volume uses inaccurate integration")
     return result

@@ -232,6 +232,13 @@ jobs:
           --out "${{ env.logdir }}headless-e2e"
           --require-adaptive
 
+      - name: Native measurement regressions
+        if: "!inputs.skipBuild && github.repository == 'bogusyogi/FreeCAD'"
+        timeout-minutes: 5
+        run: >
+          ctest --test-dir "${{ env.builddir }}" -C Release
+          -R "^Measure_tests_run$" --output-on-failure --no-tests=error
+
       - name: Retain Windows test runtime
         if: >-
           always() && steps.compile.outcome == 'success'
