@@ -149,8 +149,8 @@ TEST_F(QuickMeasureTest, RationalSolidHasAccurateVolumeAndMassProperties)
 {
     auto feature = makeRationalSolid("RationalSolid", true);
     auto splineFeature = makeRationalSolid("RationalBSplineSolid", false);
-    ASSERT_TRUE(feature->Shape.getValue().isValid());
-    ASSERT_TRUE(splineFeature->Shape.getValue().isValid());
+    ASSERT_TRUE(feature->Shape.getShape().isValid());
+    ASSERT_TRUE(splineFeature->Shape.getShape().isValid());
 
     constexpr double expectedVolume = 5.40871353861894;
     const auto reportVolumeProperties = [](const char* name, const TopoDS_Shape& shape) {
@@ -167,9 +167,9 @@ TEST_F(QuickMeasureTest, RationalSolidHasAccurateVolumeAndMassProperties)
         return gkProps;
     };
     const GProp_GProps bezierGK =
-        reportVolumeProperties("bezier", feature->Shape.getValue().getShape());
+        reportVolumeProperties("bezier", feature->Shape.getValue());
     const GProp_GProps bsplineGK =
-        reportVolumeProperties("bspline", splineFeature->Shape.getValue().getShape());
+        reportVolumeProperties("bspline", splineFeature->Shape.getValue());
     EXPECT_NEAR(bezierGK.Mass(), expectedVolume, 1e-6);
     EXPECT_NEAR(bsplineGK.Mass(), expectedVolume, 1e-6);
     EXPECT_NEAR(bezierGK.CentreOfMass().X(), 0.5, 1e-6);
