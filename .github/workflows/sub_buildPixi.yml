@@ -195,6 +195,15 @@ jobs:
       run: |
         pixi run configure-${{ env.config }}
 
+    - name: Configure fork Mac portable build
+      if: github.repository == 'bogusyogi/FreeCAD' && github.event_name == 'workflow_dispatch' && runner.os == 'macOS' && !inputs.skipBuild
+      run: |
+        pixi run cmake -S . -B build/release \
+          -DRELATIVE_RPATH=ON \
+          -DINSTALL_TO_SITEPACKAGES=ON \
+          -DBUILD_DYNAMIC_LINK_PYTHON=OFF \
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+
     - name: CMake Build
       if: "!inputs.skipBuild"
       run: |
@@ -277,6 +286,64 @@ jobs:
         logFile: ${{ env.logdir }}TestCLIInstall.log
         reportFile: ${{env.reportdir}}${{ env.reportfilename }}
         shellCmd: ${{ env.shellCmd }}
+
+    - name: Build fork Mac portable test bundle
+      if: github.repository == 'bogusyogi/FreeCAD' && github.event_name == 'workflow_dispatch' && runner.os == 'macOS' && !inputs.skipBuild
+      env:
+        BUILD_TAG: dev-${{ github.sha }}
+        MACOS_DEPLOYMENT_TARGET: '11.0'
+        MACOS_SIGN_RELEASE: 'false'
+        UPLOAD_RELEASE: 'false'
+      run: |
+        cd package/bundle
+        pixi run --locked bash -euo pipefail <<'BUNDLE'
+        test "$(uname -m)" = arm64
+        mv ../../.pixi/envs/default/bin/FreeCAD ../../.pixi/envs/default/bin/freecad
+        mv ../../.pixi/envs/default/bin/FreeCADCmd ../../.pixi/envs/default/bin/freecadcmd
+        cd osx
+        bash create_bundle.sh
+        BUNDLE
+
+    - name: Qualify fork Mac portable bundle
+      if: github.repository == 'bogusyogi/FreeCAD' && github.event_name == 'workflow_dispatch' && runner.os == 'macOS' && !inputs.skipBuild
+      run: |
+        set -euo pipefail
+        root="${GITHUB_WORKSPACE}"
+        app_source="$root/package/bundle/osx/FreeCAD.app"
+        app_target="$RUNNER_TEMP/FreeCAD-fork.app"
+        root_pixi_env="$root/.pixi/envs/default"
+        hidden_pixi_env="$root/.pixi/envs/default.portable-hidden"
+
+        test -d "$app_source"
+        test ! -e "$app_target"
+        mv "$app_source" "$app_target"
+
+        restore_root_pixi_env() {
+          if [[ -d "$hidden_pixi_env" && ! -e "$root_pixi_env" ]]; then
+            mv "$hidden_pixi_env" "$root_pixi_env"
+          fi
+        }
+        trap restore_root_pixi_env EXIT
+
+        if [[ -e "$root_pixi_env" ]]; then
+          test ! -e "$hidden_pixi_env"
+          mv "$root_pixi_env" "$hidden_pixi_env"
+        fi
+
+        unset CONDA_PREFIX PYTHONHOME PYTHONPATH DYLD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH PATH_TO_FREECAD_LIBDIR
+        /usr/bin/python3 contrib/headless/e2e.py \
+          --freecad "$app_target/Contents/Resources/bin/freecadcmd" \
+          --out "$GITHUB_WORKSPACE/logs/headless-e2e" \
+          --require-adaptive
+
+    - name: Upload fork Mac portable test runtime
+      if: github.repository == 'bogusyogi/FreeCAD' && github.event_name == 'workflow_dispatch' && runner.os == 'macOS' && !inputs.skipBuild
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: FreeCAD-macOS-test-runtime-${{ github.sha }}
+        retention-days: 7
+        if-no-files-found: error
+        path: package/bundle/osx/FreeCAD_dev-${{ github.sha }}-macOS11-arm64.dmg
 
     - name: FreeCAD GUI tests on install
       # if: runner.os == 'Linux' && !inputs.skipBuild
