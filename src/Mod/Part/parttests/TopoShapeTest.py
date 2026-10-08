@@ -3,6 +3,7 @@
 import FreeCAD as App
 import Part
 
+import math
 import unittest
 
 
@@ -86,11 +87,9 @@ class TopoShapeTest(unittest.TestCase, TopoShapeAssertions):
     def testTopoShapeBox(self):
         # Arrange our test TopoShape
         box2_toposhape = self.doc.Box2.Shape
-        # Arrange list of attributes and values to string match
+        # Arrange non-numeric attributes and values to string match
         attr_value_list = [
             ["BoundBox", App.BoundBox(0, 0, 0, 2, 1, 2)],
-            ["CenterOfGravity", App.Vector(1, 0.5, 1)],
-            ["CenterOfMass", App.Vector(1, 0.5, 1)],
             ["CompSolids", []],
             ["Compounds", []],
             [
@@ -100,44 +99,54 @@ class TopoShapeTest(unittest.TestCase, TopoShapeAssertions):
             ["ElementMap", {}],
             ["ElementReverseMap", {}],
             ["Hasher", None],
-            [
-                "MatrixOfInertia",
-                App.Matrix(1.66667, 0, 0, 0, 0, 2.66667, 0, 0, 0, 0, 1.66667, 0, 0, 0, 0, 1),
-            ],
             ["Module", "Part"],
             ["Orientation", "Forward"],
             # ['OuterShell', {}],    # Todo: Could verify that a Shell Object is returned
             ["Placement", App.Placement()],
-            [
-                "PrincipalProperties",
-                {
-                    "SymmetryAxis": True,
-                    "SymmetryPoint": False,
-                    "Moments": (
-                        2.666666666666666,
-                        1.666666666666667,
-                        1.666666666666667,
-                    ),
-                    "FirstAxisOfInertia": App.Vector(0.0, 1.0, 0.0),
-                    "SecondAxisOfInertia": App.Vector(0.0, 0.0, 1.0),
-                    "ThirdAxisOfInertia": App.Vector(1.0, 0.0, 0.0),
-                    "RadiusOfGyration": (
-                        0.816496580927726,
-                        0.6454972243679029,
-                        0.6454972243679029,
-                    ),
-                },
-            ],
             ["ShapeType", "Solid"],
-            [
-                "StaticMoments",
-                (3.999999999999999, 1.9999999999999996, 3.999999999999999),
-            ],
             # ['Tag', 0],    # Gonna vary, so can't really assert, except maybe != 0?
             ["TypeId", "Part::TopoShape"],
         ]
-        # Assert all the expected values match when converted to strings.
+        # Assert all expected non-numeric values match when converted to strings.
         self.assertAttrEqual(box2_toposhape, attr_value_list)
+
+        # Box2 is 2 x 1 x 2, centered at (1, 0.5, 1).
+        for center in (box2_toposhape.CenterOfGravity, box2_toposhape.CenterOfMass):
+            self.assertAlmostEqual(center.x, 1.0, places=12)
+            self.assertAlmostEqual(center.y, 0.5, places=12)
+            self.assertAlmostEqual(center.z, 1.0, places=12)
+
+        inertia = box2_toposhape.MatrixOfInertia
+        inertia_diagonal = (5.0 / 3.0, 8.0 / 3.0, 5.0 / 3.0, 1.0)
+        for row in range(1, 5):
+            for column in range(1, 5):
+                expected = inertia_diagonal[row - 1] if row == column else 0.0
+                self.assertAlmostEqual(getattr(inertia, f"A{row}{column}"), expected, places=12)
+
+        self.assertEqual(len(box2_toposhape.StaticMoments), 3)
+        for actual, expected in zip(box2_toposhape.StaticMoments, (4.0, 2.0, 4.0)):
+            self.assertAlmostEqual(actual, expected, places=12)
+
+        principal = box2_toposhape.PrincipalProperties
+        self.assertTrue(principal["SymmetryAxis"])
+        self.assertFalse(principal["SymmetryPoint"])
+        moments = principal["Moments"]
+        self.assertEqual(len(moments), 3)
+        for actual, expected in zip(sorted(moments), (5.0 / 3.0, 5.0 / 3.0, 8.0 / 3.0)):
+            self.assertAlmostEqual(actual, expected, places=12)
+        expected_radii = (math.sqrt(5.0 / 12.0), math.sqrt(5.0 / 12.0), math.sqrt(2.0 / 3.0))
+        self.assertEqual(len(principal["RadiusOfGyration"]), 3)
+        for actual, expected in zip(sorted(principal["RadiusOfGyration"]), expected_radii):
+            self.assertAlmostEqual(actual, expected, places=12)
+
+        axes = tuple(principal[f"{name}AxisOfInertia"] for name in ("First", "Second", "Third"))
+        for axis, moment in zip(axes, moments):
+            self.assertAlmostEqual(axis.Length, 1.0, places=12)
+            self.assertAlmostEqual((5.0 / 3.0) * axis.x, moment * axis.x, places=12)
+            self.assertAlmostEqual((8.0 / 3.0) * axis.y, moment * axis.y, places=12)
+            self.assertAlmostEqual((5.0 / 3.0) * axis.z, moment * axis.z, places=12)
+        for first, second in ((0, 1), (0, 2), (1, 2)):
+            self.assertAlmostEqual(axes[first].dot(axes[second]), 0.0, places=12)
 
         # Arrange list of attributes and values to match within 5 decimal places
         attr_value_list = [
