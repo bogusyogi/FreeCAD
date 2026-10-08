@@ -35,21 +35,33 @@ class BRepTests(unittest.TestCase):
         # A rational quadratic profile extruded by one unit. Its volume is
         # integral(z(t) * x'(t), t=0..1). Default OCCT integration errs by 0.6%.
         weight = 10.0
-        curve = Part.BSplineCurve()
-        curve.buildFromPolesMultsKnots(
-            [App.Vector(0, 0, 1), App.Vector(0.5, 0, 10), App.Vector(1, 0, 1)],
-            [3, 3], [0.0, 1.0], False, 2, [1.0, weight, 1.0]
-        )
+        poles = [App.Vector(0, 0, 1), App.Vector(0.5, 0, 10), App.Vector(1, 0, 1)]
+        weights = [1.0, weight, 1.0]
         corners = [App.Vector(1, 0, 1), App.Vector(1, 0, 0),
                    App.Vector(0, 0, 0), App.Vector(0, 0, 1)]
-        wire = Part.Wire([curve.toShape()] + [Part.makeLine(a, b) for a, b in zip(corners, corners[1:])])
-        solid = Part.Face(wire).extrude(App.Vector(0, 1, 0))
-        self.assertTrue(solid.isValid())
-        volume, error = solid.getVolumeProperties(1e-8)
-        # Independently integrated rational Bernstein polynomials, not mesh volume.
-        self.assertAlmostEqual(volume, 5.40871353861894, places=6)
-        self.assertLessEqual(error, 1e-8)
-        self.assertAlmostEqual(solid.Volume, 5.40871353861894, places=6)
+        for curve_type in ("bspline", "bezier"):
+            with self.subTest(curve_type=curve_type):
+                if curve_type == "bspline":
+                    curve = Part.BSplineCurve()
+                    curve.buildFromPolesMultsKnots(
+                        poles, [3, 3], [0.0, 1.0], False, 2, weights
+                    )
+                else:
+                    curve = Part.BezierCurve()
+                    curve.setPoles(poles)
+                    for index, curve_weight in enumerate(weights, 1):
+                        curve.setWeight(index, curve_weight)
+                edges = [curve.toShape()] + [Part.makeLine(a, b)
+                                               for a, b in zip(corners, corners[1:])]
+                solid = Part.Face(Part.Wire(edges)).extrude(App.Vector(0, 1, 0))
+                self.assertTrue(solid.isValid())
+                volume, error = solid.getVolumeProperties(1e-8)
+                # Independently integrated rational Bernstein polynomials, not mesh volume.
+                self.assertAlmostEqual(volume, 5.40871353861894, places=6)
+                self.assertTrue(math.isfinite(error))
+                self.assertGreaterEqual(error, 0)
+                self.assertLessEqual(error, 1e-8)
+                self.assertAlmostEqual(solid.Volume, 5.40871353861894, places=6)
 
     def testProject(self):
         """

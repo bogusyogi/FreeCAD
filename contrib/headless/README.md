@@ -1,9 +1,9 @@
 # Headless native FreeCAD prototype
 
 This fork starts with a small agent-facing Python runner using FreeCAD alone.
-It requires an official FreeCAD installation; it does not compile or replace the
-application. Runtime checks below distinguish official binaries from compiled
-fork changes. No build123d dependency, MCP server,
+It accepts an explicit FreeCADCmd executable from an official installation or
+compiled fork. The runner does not compile the application. Runtime checks below
+distinguish official binaries from compiled fork changes. No build123d dependency, MCP server,
 running GUI, custom viewer, or additional Python package is required.
 
 ## Generate a part
@@ -33,6 +33,8 @@ py -3.11 contrib/headless/run.py contrib/headless/plate.py `
 
 Outputs: `model.FCStd`, `model.step`, `request.json`, `result.json`, `freecad.log`.
 Exit status is nonzero on failure, including when FreeCAD swallows a script error.
+Operational failures also return JSON on stdout, including missing inputs,
+malformed parameters, launch errors, timeouts & missing worker output.
 The output directory must not exist, preventing stale-success results & accidental
 overwrites. Model scripts run as the current user, not in a security sandbox.
 
@@ -58,6 +60,31 @@ fixtures. Export temporarily bakes a sole assembly root's placement into its
 children because the native exporter otherwise drops that placement; an aborted
 transaction restores the editable document, which is checked again afterward.
 User STEP fixtures are external inputs & are not included in this public fork.
+
+## Edit a real Yokai scale
+
+`yokai_scale.py` imports the supplied Yokai mini assembly & selects its scale
+labelled `FIXED_20205_v04`. It adds a native 2 mm square recess on an exposed
+planar face. Mount-hole geometry, mating face & untouched components are checked
+against the imported source. This is an editing example, not a manufacturing
+specification.
+
+```sh
+python3 contrib/headless/yokai_e2e.py \
+  --freecad /Applications/FreeCAD.app/Contents/Resources/bin/freecadcmd \
+  --source '/absolute/path/to/Yokai mini.STEP' \
+  --out /tmp/yokai-native-e2e
+```
+
+This creates `initial/model.FCStd` & `revised/model.FCStd`, plus STEP exports.
+Separate FreeCAD processes create a 0.5 mm recess, reopen the saved document &
+change depth to 0.75 mm. Boundary depths 0.1 & 1.0 mm are exercised; 1.01 mm is
+rejected. In FreeCAD, select `YokaiParameters` & edit `RecessDepth`; native
+expressions update the recess without loading an addon. Source STEP & initial
+FCStd hashes must remain unchanged. Inspect `yokai-e2e.json` for results. This
+exercise passed on official macOS 26.3rc1 & Windows 1.1.4. A macOS GUI console
+edit also recomputed, saved & reopened at 0.75 mm with seven solids & no invalid
+features. Add `--require-adaptive` to require compiled-fork volume measurement.
 
 ## Real-process end-to-end exercise
 
@@ -85,15 +112,17 @@ Windows 1.1.4. Private fixtures are never uploaded to CI.
 
 | Issue | Resolution & evidence |
 | --- | --- |
-| macOS accessibility crash with Qt 6.8.3 | The fork already requires Qt >=6.11 in `pixi.toml`. Official 26.3rc1 with Qt 6.11.2 survived direct GUI imports of all three fixtures, repeated accessibility inspection, camera changes & document reopen/close. 1.1.4 repeatedly crashed during these operations. |
+| macOS accessibility crashes | Qt 6.8.3 crashes during imports/inspection. Qt 6.11.2 passed those operations but also crashed while accessibility inspected an active parameter editor. The latter remains under investigation; upgrading Qt alone is not a complete fix. |
 | Headless documents opening hidden | Result visibility & fitted camera are persisted. Native generated plate, bead & assembly output were opened visually. |
 | Headless STEP import flattening assembly structure | Native `Import.insert`/`Import.export` replace flattened shape import/export. Component structure & placed bounds are checked on both roundtrips. |
 | STEP export dropping moved/rotated root placement | Transactional export normalization preserves world geometry & restores native placements. Nested placement fixture covers this. |
-| Default volume integration overstating a sculpted fixture by about 1.3% | Native Volume, Measure & Mass Properties now request adaptive OCCT integration. New C++ `Shape.getVolumeProperties(eps)` additionally exposes its estimated relative error. Compiled-fork qualification is required; official 26.3rc1 still uses inaccurate default integration. |
+| Default volume integration overstating a sculpted fixture by about 1.3% | Native Volume, Measure & Mass Properties request adaptive OCCT integration; `Shape.getVolumeProperties(eps)` exposes its estimated relative error. Compiled C++ testing revealed a separate rational Bezier integration error. An alternate integrator is being tested before qualification. |
 
-The crash matches [FreeCAD #30720](https://github.com/FreeCAD/FreeCAD/issues/30720)
+The earlier crash matches [FreeCAD #30720](https://github.com/FreeCAD/FreeCAD/issues/30720)
 & Qt's [accessibility reference-count fix](https://github.com/qt/qtbase/commit/b1ed5f656f064e553b33752f8e87d2f5b9553e38).
-26.3rc1 is an upstream release candidate, not a compiled binary of this fork.
+The parameter-editor crash also occurs inside Qt accessibility, but has not been
+shown to share that earlier root cause. 26.3rc1 is an upstream release candidate,
+not a compiled binary of this fork.
 
 ## Adaptive measurement
 
@@ -104,8 +133,9 @@ or insufficiently converged results. Use `--require-adaptive` with `run.py` or
 `e2e.py` to reject official binaries that lack this API. The rejection itself was
 verified on 26.3rc1. Without this option, older runtimes remain usable for file
 operations, but their default-integration volumes are explicitly unqualified.
-Strict E2E additionally extrudes a rational spline profile with independently
-integrated volume 5.40871353861894 mm³, checking native Volume & Measure results
+Strict E2E additionally extrudes equivalent rational BSpline & Bezier profiles
+with independently integrated volume 5.40871353861894 mm³, checking native
+Volume & Measure results
 plus native & STEP roundtrips. C++ coverage also checks Mass Properties.
 Default OCCT integration misses this synthetic fixture by about 0.6%.
 

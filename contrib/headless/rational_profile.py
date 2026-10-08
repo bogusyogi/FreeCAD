@@ -7,11 +7,19 @@ import Part
 
 def build(params):
     doc = App.newDocument("RationalProfile")
-    curve = Part.BSplineCurve()
-    curve.buildFromPolesMultsKnots(
-        [App.Vector(0, 0, 1), App.Vector(0.5, 0, 10), App.Vector(1, 0, 1)],
-        [3, 3], [0.0, 1.0], False, 2, [1.0, 10.0, 1.0]
-    )
+    poles = [App.Vector(0, 0, 1), App.Vector(0.5, 0, 10), App.Vector(1, 0, 1)]
+    weights = [1.0, 10.0, 1.0]
+    curve_type = params.get("curve", "bspline")
+    if curve_type == "bspline":
+        curve = Part.BSplineCurve()
+        curve.buildFromPolesMultsKnots(poles, [3, 3], [0.0, 1.0], False, 2, weights)
+    elif curve_type == "bezier":
+        curve = Part.BezierCurve()
+        curve.setPoles(poles)
+        for index, weight in enumerate(weights, 1):
+            curve.setWeight(index, weight)
+    else:
+        raise ValueError("curve must be 'bspline' or 'bezier'")
     corners = [App.Vector(1, 0, 1), App.Vector(1, 0, 0),
                App.Vector(0, 0, 0), App.Vector(0, 0, 1)]
     edges = [curve.toShape()] + [Part.makeLine(a, b) for a, b in zip(corners, corners[1:])]

@@ -65,8 +65,9 @@ def main():
     if args.require_adaptive:
         # Integral of z(t) * x'(t) for the rational Bernstein profile.
         # Default OCCT quadrature misses this by about 0.6%.
-        run("rational-profile", "rational_profile.py", {"check_native_measurement": True},
-            5.40871353861894)
+        for curve in ("bspline", "bezier"):
+            run(f"rational-profile-{curve}", "rational_profile.py",
+                {"curve": curve, "check_native_measurement": True}, 5.40871353861894)
     for index, source in enumerate(args.step):
         run(f"import-{index}", "import_step.py", {"source": str(Path(source).resolve(strict=True))})
     (args.out / "e2e.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
