@@ -74,9 +74,9 @@ class TopoShape(ComplexGeoData):
     def getVolumeProperties(self, eps: float = 1e-6, /) -> Tuple[float, float]:
         """Return (signed volume, estimated relative integration error) for one solid.
 
-        Uses OCCT adaptive integration. eps must be finite, positive & at most
-        0.001; larger values select non-adaptive integration in OCCT. The error
-        is OCCT's numerical estimate, not a certified geometric error bound.
+        Uses OCCT adaptive Gauss-Kronrod integration. eps must be finite, positive
+        & at most 0.001. The error is OCCT's numerical estimate, not a certified
+        geometric error bound.
         For assemblies, call on each solid & sum volumes.
         """
         ...

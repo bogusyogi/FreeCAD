@@ -26,9 +26,6 @@
 #include <Precision.hxx>
 #include <gtest/gtest.h>
 
-#include <iomanip>
-#include <iostream>
-
 class QuickMeasureTest: public ::testing::Test
 {
 protected:
@@ -152,41 +149,57 @@ TEST_F(QuickMeasureTest, RationalSolidHasAccurateVolumeAndMassProperties)
     ASSERT_TRUE(feature->Shape.getShape().isValid());
     ASSERT_TRUE(splineFeature->Shape.getShape().isValid());
 
-    constexpr double expectedVolume = 5.40871353861894;
-    const auto reportVolumeProperties = [](const char* name, const TopoDS_Shape& shape) {
-        GProp_GProps legacyProps;
+    // Independent 200,000-panel Simpson integration of the rational profile.
+    constexpr double expectedVolume = 5.4087135386429628;
+    constexpr double expectedCenterZ = 3.2753075434687751;
+    constexpr double expectedInertiaX = 28.133044057491972;
+    constexpr double expectedInertiaY = 27.95226192324985;
+    constexpr double expectedInertiaZ = 0.72067012219837623;
+    const auto volumeProperties = [](const TopoDS_Shape& shape) {
         GProp_GProps gkProps;
-        const double legacyError = BRepGProp::VolumeProperties(shape, legacyProps, 1e-6);
         const double gkError = BRepGProp::VolumePropertiesGK(
             shape, gkProps, 1e-6, false, false, true, true
         );
-        std::cout << std::setprecision(17) << name << " legacyMass=" << legacyProps.Mass()
-                  << " legacyError=" << legacyError << " gkMass=" << gkProps.Mass()
-                  << " gkError=" << gkError << " gkCenter=" << gkProps.CentreOfMass().X()
-                  << ',' << gkProps.CentreOfMass().Y() << ',' << gkProps.CentreOfMass().Z() << '\n';
+        EXPECT_GE(gkError, 0.0);
+        EXPECT_LE(gkError, 1e-6);
         return gkProps;
     };
-    const GProp_GProps bezierGK =
-        reportVolumeProperties("bezier", feature->Shape.getValue());
-    const GProp_GProps bsplineGK =
-        reportVolumeProperties("bspline", splineFeature->Shape.getValue());
+    const GProp_GProps bezierGK = volumeProperties(feature->Shape.getValue());
+    const GProp_GProps bsplineGK = volumeProperties(splineFeature->Shape.getValue());
     EXPECT_NEAR(bezierGK.Mass(), expectedVolume, 1e-6);
     EXPECT_NEAR(bsplineGK.Mass(), expectedVolume, 1e-6);
     EXPECT_NEAR(bezierGK.CentreOfMass().X(), 0.5, 1e-6);
     EXPECT_NEAR(bezierGK.CentreOfMass().Y(), 0.5, 1e-6);
+    EXPECT_NEAR(bezierGK.CentreOfMass().Z(), expectedCenterZ, 1e-6);
     EXPECT_NEAR(bsplineGK.CentreOfMass().X(), 0.5, 1e-6);
     EXPECT_NEAR(bsplineGK.CentreOfMass().Y(), 0.5, 1e-6);
+    EXPECT_NEAR(bsplineGK.CentreOfMass().Z(), expectedCenterZ, 1e-6);
+    EXPECT_NEAR(bezierGK.MatrixOfInertia()(1, 1), expectedInertiaX, 1e-6);
+    EXPECT_NEAR(bezierGK.MatrixOfInertia()(2, 2), expectedInertiaY, 1e-6);
+    EXPECT_NEAR(bezierGK.MatrixOfInertia()(3, 3), expectedInertiaZ, 1e-6);
+    EXPECT_NEAR(bsplineGK.MatrixOfInertia()(1, 1), expectedInertiaX, 1e-6);
+    EXPECT_NEAR(bsplineGK.MatrixOfInertia()(2, 2), expectedInertiaY, 1e-6);
+    EXPECT_NEAR(bsplineGK.MatrixOfInertia()(3, 3), expectedInertiaZ, 1e-6);
 
-    Measure::Measurement measurement;
-    measurement.addReference3D(feature, "");
-    EXPECT_NEAR(measurement.volume(), expectedVolume, 1e-6);
-    MassPropertiesInput input;
-    input.object = feature;
-    input.shape = feature->Shape.getValue();
-    auto result = CalculateMassProperties({input}, MassPropertiesMode::CenterOfGravity, nullptr);
-    EXPECT_NEAR(result.volume.getValue(), expectedVolume, 1e-6);
-    EXPECT_NEAR(result.mass.getValue(), expectedVolume * 1e-6, 1e-12);
-    EXPECT_NEAR(result.cov.x, 0.5, 1e-6);
-    EXPECT_NEAR(result.cov.y, 0.5, 1e-6);
+    const auto verifyFreeCADProperties = [&](Part::Feature* rationalSolid) {
+        Measure::Measurement measurement;
+        measurement.addReference3D(rationalSolid, "");
+        EXPECT_NEAR(measurement.volume(), expectedVolume, 1e-6);
+        MassPropertiesInput input;
+        input.object = rationalSolid;
+        input.shape = rationalSolid->Shape.getValue();
+        auto result = CalculateMassProperties({input}, MassPropertiesMode::CenterOfGravity, nullptr);
+        EXPECT_NEAR(result.volume.getValue(), expectedVolume, 1e-6);
+        EXPECT_NEAR(result.mass.getValue(), expectedVolume * 1e-6, 1e-12);
+        EXPECT_NEAR(result.cov.x, 0.5, 1e-6);
+        EXPECT_NEAR(result.cov.y, 0.5, 1e-6);
+        EXPECT_NEAR(result.cov.z, expectedCenterZ, 1e-6);
+        constexpr double defaultDensity = 1e-6;  // kg/mm^3, MassProperties fallback
+        EXPECT_NEAR(result.inertiaJo.x, expectedInertiaX * defaultDensity, 1e-10);
+        EXPECT_NEAR(result.inertiaJo.y, expectedInertiaY * defaultDensity, 1e-10);
+        EXPECT_NEAR(result.inertiaJo.z, expectedInertiaZ * defaultDensity, 1e-10);
+    };
+    verifyFreeCADProperties(feature);
+    verifyFreeCADProperties(splineFeature);
 }
 // NOLINTEND(readability-magic-numbers)

@@ -2901,7 +2901,7 @@ Py::Float TopoShapePy::getVolume() const
         throw Py::RuntimeError("shape is invalid");
     }
     GProp_GProps props;
-    BRepGProp::VolumeProperties(shape, props, 1e-6);
+    BRepGProp::VolumePropertiesGK(shape, props, 1e-6);
     return Py::Float(props.Mass());
 }
 
@@ -2923,8 +2923,16 @@ PyObject* TopoShapePy::getVolumeProperties(PyObject* args) const
     PY_TRY
     {
         GProp_GProps props;
-        const double error = BRepGProp::VolumeProperties(shape, props, eps);
-        return Py_BuildValue("(dd)", props.Mass(), error);
+        double error = BRepGProp::VolumePropertiesGK(shape, props, eps);
+        if (error < 0.0) {
+            throw Standard_Failure("Volume property integration failed");
+        }
+        const double mass = props.Mass();
+        // OCCT normalizes only when mass is greater than Epsilon(1.).
+        if (mass != 0.0 && mass <= std::numeric_limits<double>::epsilon()) {
+            error /= std::abs(mass);
+        }
+        return Py_BuildValue("(dd)", mass, error);
     }
     PY_CATCH_OCC
 }

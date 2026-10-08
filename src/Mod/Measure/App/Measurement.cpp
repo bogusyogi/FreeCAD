@@ -977,7 +977,7 @@ double Measurement::volume() const
             if (shape.IsNull() || shape.Infinite()) {
                 continue;
             }
-            BRepGProp::VolumeProperties(shape, props, 1e-6);
+            BRepGProp::VolumePropertiesGK(shape, props, 1e-6);
             result += props.Mass();
         }
     }
@@ -1046,7 +1046,7 @@ Base::Vector3d Measurement::massCenter() const
                 if (shape.IsNull()) {
                     continue;
                 }
-                BRepGProp::VolumeProperties(shape, props, 1e-6);
+                BRepGProp::VolumePropertiesGK(shape, props, 1e-6, false, false, true);
                 gprops.Add(props);
                 // Get inertia properties
             }

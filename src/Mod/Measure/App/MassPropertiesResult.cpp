@@ -184,7 +184,7 @@ MassPropertiesData CalculateMassProperties(
         }
 
         GProp_GProps volProps;
-        BRepGProp::VolumeProperties(shape, volProps, 1e-6);
+        BRepGProp::VolumePropertiesGK(shape, volProps, 1e-6, false, false, true, true);
         globalVolumeProps.Add(volProps);
 
         GProp_GProps surfProps;

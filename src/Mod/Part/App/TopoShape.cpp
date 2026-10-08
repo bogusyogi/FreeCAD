@@ -1191,7 +1191,7 @@ bool getShapeProperties(const TopoDS_Shape& shape, GProp_GProps& prop)
 {
     TopExp_Explorer xpSolid(shape, TopAbs_SOLID);
     if (xpSolid.More()) {
-        BRepGProp::VolumeProperties(shape, prop, 1e-6);
+        BRepGProp::VolumePropertiesGK(shape, prop, 1e-6, false, false, true);
         return true;
     }
 

@@ -117,7 +117,7 @@ Windows 1.1.4. Private fixtures are never uploaded to CI.
 | Headless documents opening hidden | Result visibility & fitted camera are persisted. Native generated plate, bead & assembly output were opened visually. |
 | Headless STEP import flattening assembly structure | Native `Import.insert`/`Import.export` replace flattened shape import/export. Component structure & placed bounds are checked on both roundtrips. |
 | STEP export dropping moved/rotated root placement | Transactional export normalization preserves world geometry & restores native placements. Nested placement fixture covers this. |
-| Default volume integration overstating a sculpted fixture by about 1.3% | Native Volume, Measure & Mass Properties request adaptive OCCT integration; `Shape.getVolumeProperties(eps)` exposes its estimated relative error. Compiled C++ testing revealed a separate rational Bezier integration error. An alternate integrator is being tested before qualification. |
+| Default volume integration overstating a sculpted fixture by about 1.3% | Native Volume, Measure & Mass Properties use adaptive Gauss-Kronrod integration; `Shape.getVolumeProperties(eps)` exposes its estimated relative error. Compiled testing found legacy adaptive Gaussian integration also wrong for equivalent rational Bezier & BSpline solids. The direct Gauss-Kronrod probe matched independent volume & center values; compiled-fork qualification is still required. |
 
 The earlier crash matches [FreeCAD #30720](https://github.com/FreeCAD/FreeCAD/issues/30720)
 & Qt's [accessibility reference-count fix](https://github.com/qt/qtbase/commit/b1ed5f656f064e553b33752f8e87d2f5b9553e38).
@@ -127,7 +127,7 @@ not a compiled binary of this fork.
 
 ## Adaptive measurement
 
-On a compiled fork, measurement sums adaptive integrations over individual solids
+On a compiled fork, measurement sums adaptive Gauss-Kronrod integrations over individual solids
 at `eps=1e-6`, reporting `volume_estimated_error_mm3`. OCCT's error estimate is
 not a certified geometric error bound. The runner rejects non-finite, negative
 or insufficiently converged results. Use `--require-adaptive` with `run.py` or

@@ -20,7 +20,11 @@ class BRepTests(unittest.TestCase):
         self.assertGreaterEqual(error, 0)
         self.assertLessEqual(error, 1e-7)
         solid.reverse()
-        self.assertAlmostEqual(solid.getVolumeProperties()[0], -volume, places=6)
+        reversed_volume, reversed_error = solid.getVolumeProperties(1e-7)
+        self.assertAlmostEqual(reversed_volume, -volume, places=6)
+        self.assertTrue(math.isfinite(reversed_error))
+        self.assertGreaterEqual(reversed_error, 0)
+        self.assertLessEqual(reversed_error, 1e-7)
 
     def testAdaptiveVolumeRejectsInvalidArguments(self):
         box = Part.makeBox(1, 2, 3)
@@ -32,8 +36,10 @@ class BRepTests(unittest.TestCase):
                 shape.getVolumeProperties()
 
     def testAdaptiveVolumeRationalSpline(self):
-        # A rational quadratic profile extruded by one unit. Its volume is
-        # integral(z(t) * x'(t), t=0..1). Default OCCT integration errs by 0.6%.
+        # Independent 200,000-panel Simpson integration of this rational profile.
+        expected_volume = 5.4087135386429628
+        expected_center_z = 3.2753075434687751
+        expected_inertia = (28.133044057491972, 27.95226192324985, 0.72067012219837623)
         weight = 10.0
         poles = [App.Vector(0, 0, 1), App.Vector(0.5, 0, 10), App.Vector(1, 0, 1)]
         weights = [1.0, weight, 1.0]
@@ -56,12 +62,21 @@ class BRepTests(unittest.TestCase):
                 solid = Part.Face(Part.Wire(edges)).extrude(App.Vector(0, 1, 0))
                 self.assertTrue(solid.isValid())
                 volume, error = solid.getVolumeProperties(1e-8)
-                # Independently integrated rational Bernstein polynomials, not mesh volume.
-                self.assertAlmostEqual(volume, 5.40871353861894, places=6)
+                self.assertAlmostEqual(volume, expected_volume, places=6)
                 self.assertTrue(math.isfinite(error))
                 self.assertGreaterEqual(error, 0)
                 self.assertLessEqual(error, 1e-8)
-                self.assertAlmostEqual(solid.Volume, 5.40871353861894, places=6)
+                self.assertAlmostEqual(solid.Volume, expected_volume, places=6)
+                self.assertAlmostEqual(solid.Mass, expected_volume, places=6)
+                self.assertAlmostEqual(solid.CenterOfMass.x, 0.5, places=6)
+                self.assertAlmostEqual(solid.CenterOfMass.y, 0.5, places=6)
+                self.assertAlmostEqual(solid.CenterOfMass.z, expected_center_z, places=6)
+                self.assertAlmostEqual(solid.CenterOfGravity.x, 0.5, places=6)
+                self.assertAlmostEqual(solid.CenterOfGravity.y, 0.5, places=6)
+                self.assertAlmostEqual(solid.CenterOfGravity.z, expected_center_z, places=6)
+                self.assertAlmostEqual(solid.MatrixOfInertia.A11, expected_inertia[0], places=6)
+                self.assertAlmostEqual(solid.MatrixOfInertia.A22, expected_inertia[1], places=6)
+                self.assertAlmostEqual(solid.MatrixOfInertia.A33, expected_inertia[2], places=6)
 
     def testProject(self):
         """
