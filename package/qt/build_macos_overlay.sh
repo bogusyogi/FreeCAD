@@ -6,7 +6,10 @@ set -euo pipefail
 
 readonly qt_version='6.11.2'
 readonly qt_source_sha256='5b2e00eccaf5a4d8c14134ffa0ea8dfd0a35ae1ffc7f8d87fa4305a1ed23cf22'
+readonly vulkan_headers_version='1.4.357'
+readonly vulkan_headers_sha256='7dc0dbcf1d49dd3d7da3761c251c6097dfbaac475321a4a8a99269d3d5abecdc'
 readonly qt_source_url="https://download.qt.io/official_releases/qt/6.11/6.11.2/submodules/qtbase-everywhere-src-${qt_version}.tar.xz"
+readonly vulkan_headers_url="https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/v${vulkan_headers_version}.tar.gz"
 readonly overlay_root="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/freecad-qtgui-overlay-${qt_version}"
 readonly patch_file="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/patches/0001-cocoa-a11y-remove-cache-entry-before-notify.patch"
 
@@ -98,6 +101,9 @@ prefix_core_private_config="${CONDA_PREFIX}/include/qt6/QtCore/${qt_version}/QtC
 mkdir -p "$overlay_root"
 archive="$overlay_root/qtbase-everywhere-src-${qt_version}.tar.xz"
 source_root="$overlay_root/qtbase-everywhere-src-${qt_version}"
+vulkan_headers_archive="$overlay_root/Vulkan-Headers-${vulkan_headers_version}.tar.gz"
+vulkan_headers_root="$overlay_root/Vulkan-Headers-${vulkan_headers_version}"
+vulkan_include_dir="$vulkan_headers_root/include"
 build_root="$overlay_root/build"
 targets_file="$overlay_root/ninja-targets.txt"
 symbols_file="$overlay_root/qtgui-symbols.txt"
@@ -124,6 +130,23 @@ if [[ ! -d "$source_root" ]]; then
     tar -xf "$archive" -C "$overlay_root"
 fi
 [[ -f "$source_root/src/gui/accessible/qaccessiblecache_mac.mm" ]] || fail 'qtbase source layout mismatch'
+
+# Qt's locked GUI feature set requires Vulkan headers, while Pixi's runtime
+# loader package intentionally does not provide development headers. Keep these
+# checksum-pinned Khronos headers in CI scratch; do not alter prefix libraries.
+if [[ ! -f "$vulkan_headers_archive" ]]; then
+    curl --fail --location --retry 3 --output "$vulkan_headers_archive" "$vulkan_headers_url"
+fi
+[[ "$(shasum -a 256 "$vulkan_headers_archive" | awk '{print $1}')" == "$vulkan_headers_sha256" ]] \
+    || fail 'Vulkan-Headers source SHA-256 mismatch'
+if [[ ! -d "$vulkan_headers_root" ]]; then
+    tar -xzf "$vulkan_headers_archive" -C "$overlay_root"
+fi
+vulkan_header="$vulkan_include_dir/vulkan/vulkan_core.h"
+[[ -f "$vulkan_header" ]] || fail 'Vulkan-Headers source layout mismatch'
+vulkan_header_patch="$(awk '/^#define VK_HEADER_VERSION / { print $3; exit }' "$vulkan_header")"
+[[ "$vulkan_header_patch" == "${vulkan_headers_version##*.}" ]] \
+    || fail "Vulkan-Headers version mismatch: $vulkan_header_patch"
 
 if ! patch --batch --dry-run --forward -p1 -d "$source_root" < "$patch_file" >/dev/null; then
     grep -Fq 'accessibleElements.take(axid)' "$source_root/src/gui/accessible/qaccessiblecache_mac.mm" \
@@ -162,6 +185,7 @@ grep -Fq 'accessibleElements.take(axid)' "$source_root/src/gui/accessible/qacces
     -DFEATURE_enable_new_dtags=OFF \
     -DFEATURE_openssl_linked=ON \
     -DFEATURE_vulkan=ON \
+    -DVulkan_INCLUDE_DIR:PATH="$vulkan_include_dir" \
     -DQT_BUILD_EXAMPLES=OFF \
     -DQT_BUILD_TESTS=OFF
 
