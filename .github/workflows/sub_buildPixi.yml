@@ -211,6 +211,10 @@ jobs:
       if: github.repository == 'bogusyogi/FreeCAD' && github.event_name == 'workflow_dispatch' && runner.os == 'macOS' && !inputs.skipBuild
       run: echo 'MACOSX_DEPLOYMENT_TARGET=13.3' >> "$GITHUB_ENV"
 
+    - name: Build fork Mac Qt accessibility overlay
+      if: github.repository == 'bogusyogi/FreeCAD' && github.event_name == 'workflow_dispatch' && runner.os == 'macOS' && !inputs.skipBuild
+      run: pixi run bash package/qt/build_macos_overlay.sh
+
     - name: CMake Configure
       if: "!inputs.skipBuild"
       run: |

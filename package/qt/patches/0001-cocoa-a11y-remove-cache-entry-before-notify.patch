@@ -1,0 +1,15 @@
+--- a/src/gui/accessible/qaccessiblecache_mac.mm
++++ b/src/gui/accessible/qaccessiblecache_mac.mm
+@@ -36,9 +36,10 @@ void QAccessibleCache::removeAccessibleElement(QAccessible::Id axid)
+     // Some QAccessibleInterface instances in the cache didn't get created in
+     // response to a query, but when we emit events. So we might get called with
+     // and axid for which we don't have any element (yet).
+-    if (QT_MANGLE_NAMESPACE(QMacAccessibilityElement) *element = elementForId(axid)) {
++    // invalidate() posts an accessibility notification that may re-enter the cache.
++    // Do not expose an element after its id has been invalidated.
++    if (QT_MANGLE_NAMESPACE(QMacAccessibilityElement) *element = accessibleElements.take(axid)) {
+         [element invalidate];
+-        accessibleElements.remove(axid);
+         [element release];
+     }
+ }

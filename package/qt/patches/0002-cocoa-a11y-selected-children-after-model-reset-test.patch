@@ -1,0 +1,68 @@
+--- a/tests/auto/other/qaccessibilitymac/tst_qaccessibilitymac.mm
++++ b/tests/auto/other/qaccessibilitymac/tst_qaccessibilitymac.mm
+@@ -451,0 +452 @@
++    void treeViewSelectedChildrenAfterModelReset();
+@@ -885,0 +887,63 @@
++void tst_QAccessibilityMac::treeViewSelectedChildrenAfterModelReset()
++{
++    auto *tw = new QTreeWidget;
++    tw->setColumnCount(2);
++    tw->setSelectionMode(QAbstractItemView::ExtendedSelection);
++    m_window->addWidget(tw);
++    QVERIFY(QTest::qWaitForWindowExposed(m_window));
++
++    TestAXObject *appObject = [TestAXObject getApplicationAXObject];
++    QVERIFY(appObject);
++    QTRY_COMPARE(appObject.windowList.count, 1);
++    AXUIElementRef windowRef = (AXUIElementRef)appObject.windowList[0];
++    QVERIFY(windowRef != nil);
++    TestAXObject *window = [[TestAXObject alloc] initWithAXUIElementRef:windowRef];
++
++    auto accessibleTreeView = [window]() -> TestAXObject * {
++        AXUIElementRef treeView = [window findDirectChildByRole:kAXOutlineRole];
++        Q_ASSERT(treeView != nil);
++        return [[TestAXObject alloc] initWithAXUIElementRef:treeView];
++    };
++
++    TestAXObject *tv = accessibleTreeView();
++    QVERIFY(tv.valid);
++    for (int iteration = 0; iteration != 20; ++iteration) {
++        auto *first = new QTreeWidgetItem(tw, {QStringLiteral("first"), QString::number(iteration)});
++        auto *second = new QTreeWidgetItem(tw, {QStringLiteral("second"), QString::number(iteration)});
++        first->setSelected(true);
++        second->setSelected(true);
++        tw->setCurrentItem(first);
++        tw->openPersistentEditor(first, 1);
++        QCoreApplication::processEvents();
++
++        NSArray *selected = nil;
++        AXError error = AXUIElementCopyAttributeValues([tv ref], kAXSelectedChildrenAttribute,
++                                                       0, 100, (CFArrayRef *)&selected);
++        QCOMPARE(error, kAXErrorSuccess);
++        QVERIFY(selected.count > 0);
++        [selected release];
++
++        // clear() invalidates QAccessibleTree's cached table-cell interfaces.
++        tw->clear();
++        QCoreApplication::processEvents();
++
++        selected = nil;
++        error = AXUIElementCopyAttributeValues([tv ref], kAXSelectedChildrenAttribute,
++                                               0, 100, (CFArrayRef *)&selected);
++        QVERIFY(error == kAXErrorSuccess || error == kAXErrorNoValue);
++        [selected release];
++
++        // The widget persists but its table representation has been rebuilt.
++        [tv release];
++        tv = accessibleTreeView();
++        QVERIFY(tv.valid);
++        NSArray *children = [tv childList];
++        QVERIFY(children != nil);
++        [children release];
++    }
++
++    [appObject release];
++    [tv release];
++    [window release];
++}
++
