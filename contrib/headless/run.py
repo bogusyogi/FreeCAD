@@ -16,6 +16,8 @@ def main():
     parser.add_argument("--out", required=True, type=Path, help="New output directory")
     parser.add_argument("--params", default="{}", help="JSON parameter object")
     parser.add_argument("--timeout", type=float, default=120)
+    parser.add_argument("--require-adaptive", action="store_true",
+                        help="Reject runtimes without the fork's adaptive volume API")
     args = parser.parse_args()
     model = args.model.resolve(strict=True)
     executable = args.freecad.resolve(strict=True)
@@ -24,7 +26,8 @@ def main():
         parser.error("params must be an object; timeout must be in (0, 3600]")
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=False)
-    request = {"model": str(model), "params": params, "out": str(out)}
+    request = {"model": str(model), "params": params, "out": str(out),
+               "require_adaptive": args.require_adaptive}
     request_path = out / "request.json"
     request_path.write_text(json.dumps(request), encoding="utf-8")
     env = os.environ.copy()

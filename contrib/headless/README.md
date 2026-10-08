@@ -2,13 +2,15 @@
 
 This fork starts with a small agent-facing Python runner using FreeCAD alone.
 It requires an official FreeCAD installation; it does not compile or replace the
-application. Tested runtime: FreeCAD 1.1.4. No build123d dependency, MCP server,
+application. Runtime checks below distinguish official binaries from compiled
+fork changes. No build123d dependency, MCP server,
 running GUI, custom viewer, or additional Python package is required.
 
 ## Generate a part
 
 Use system Python to launch a **trusted** model file exposing `build(params)`.
-The function returns a FreeCAD document object with a solid `Shape`.
+The function returns a FreeCAD document object with solid geometry, including
+an `App::Part` assembly. Geometry is resolved through `Part.getShape`.
 The runner creates a new output directory, starts FreeCADCmd with a timeout,
 saves the native document & STEP, then reopens both for consistency checks.
 
@@ -48,7 +50,13 @@ expressions recompute, then adds another native cylinder/cut feature. Pass
 `{"document":"/absolute/path/to/model.FCStd"}` as its parameters.
 
 `import_step.py` accepts `{"source":"/absolute/path/to/input.step"}`. It imports
-geometry as a compound, not original CAD feature history or assembly metadata.
+named parts, nested assembly containers & placements using FreeCAD's native
+STEP importer. It does not recover original CAD feature history. Assembly
+roundtrips compare component names, hierarchy, solid counts & placed bounds.
+`assembly.py` exercises nested translation & rotation independently of external
+fixtures. Export temporarily bakes a sole assembly root's placement into its
+children because the native exporter otherwise drops that placement; an aborted
+transaction restores the editable document, which is checked again afterward.
 User STEP fixtures are external inputs & are not included in this public fork.
 
 ## Real-process end-to-end exercise
@@ -66,19 +74,43 @@ fixture. Checks analytic plate volume/dimensions before & after native/STEP
 roundtrips, plus preservation of the original document. Windows uses the same
 script with `py -3.11` & its native FreeCADCmd executable.
 
-Verified on 2026-10-09 with official FreeCAD 1.1.4 binaries on macOS arm64 &
-Windows x86_64: all four modeling/error scenarios & three external STEP fixtures
-completed on each host. Imported fixtures retained 1, 7 & 15 solids through native
-save/reopen & STEP export/reimport. Default-integration volume drift warnings were
-retained in reports, not treated as proof of geometric accuracy.
+Initial verification on 2026-10-09 used official FreeCAD 1.1.4 binaries on
+macOS arm64 & Windows x86_64. The assembly revision also passed all three
+external STEP fixtures on both hosts, retaining 1, 7 & 15 solids, part labels,
+nesting & placed component bounds through native & STEP roundtrips. Final eight
+scenarios, including the translated/rotated assembly, passed on Mac 26.3rc1 &
+Windows 1.1.4. Private fixtures are never uploaded to CI.
+
+## Confirmed issues & fixes
+
+| Issue | Resolution & evidence |
+| --- | --- |
+| macOS accessibility crash with Qt 6.8.3 | The fork already requires Qt >=6.11 in `pixi.toml`. Official 26.3rc1 with Qt 6.11.2 survived direct GUI imports of all three fixtures, repeated accessibility inspection, camera changes & document reopen/close. 1.1.4 repeatedly crashed during these operations. |
+| Headless documents opening hidden | Result visibility & fitted camera are persisted. Native generated plate, bead & assembly output were opened visually. |
+| Headless STEP import flattening assembly structure | Native `Import.insert`/`Import.export` replace flattened shape import/export. Component structure & placed bounds are checked on both roundtrips. |
+| STEP export dropping moved/rotated root placement | Transactional export normalization preserves world geometry & restores native placements. Nested placement fixture covers this. |
+| Default volume integration overstating a sculpted fixture by about 1.3% | New C++ `Shape.getVolumeProperties(eps)` exposes adaptive OCCT integration & its estimated relative error. Compiled-fork qualification is required; official 26.3rc1 still uses the inaccurate default API. |
+
+The crash matches [FreeCAD #30720](https://github.com/FreeCAD/FreeCAD/issues/30720)
+& Qt's [accessibility reference-count fix](https://github.com/qt/qtbase/commit/b1ed5f656f064e553b33752f8e87d2f5b9553e38).
+26.3rc1 is an upstream release candidate, not a compiled binary of this fork.
+
+## Adaptive measurement
+
+On a compiled fork, measurement sums adaptive integrations over individual solids
+at `eps=1e-6`, reporting `volume_estimated_error_mm3`. OCCT's error estimate is
+not a certified geometric error bound. The runner rejects non-finite, negative
+or insufficiently converged results. Use `--require-adaptive` with `run.py` or
+`e2e.py` to reject official binaries that lack this API. The rejection itself was
+verified on 26.3rc1. Without this option, older runtimes remain usable for file
+operations, but their default-integration volumes are explicitly unqualified.
 
 ## Scope of this first prototype
 
 Shape validity, closed solids, positive volume & roundtrip consistency are checked.
-Reports explicitly label volume as FreeCAD's default integration with no numerical
-error bound. Roundtrip volume has a declared 10 ppm sanity limit; drift above
+Roundtrip volume has a declared 10 ppm sanity limit; drift above
 0.1 ppm & 0.00001 mm³ is reported as a warning. Those are serialization checks,
 not a geometric accuracy guarantee; analytic plate checks remain tighter.
-This is not adaptive metrology, assembly interference validation,
-stable face selection after topology changes, or a finished GUI workbench.
+Assembly interference validation, stable face selection after topology changes
+& a finished GUI workbench remain outside this prototype.
 The prototype establishes native editable documents & unattended execution first.

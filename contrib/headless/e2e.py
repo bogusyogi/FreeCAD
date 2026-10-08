@@ -18,6 +18,7 @@ def main():
     parser.add_argument("--freecad", required=True)
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--step", action="append", default=[], help="Optional real STEP fixture")
+    parser.add_argument("--require-adaptive", action="store_true")
     args = parser.parse_args()
     root = Path(__file__).resolve().parent
     args.out.mkdir(parents=True, exist_ok=False)
@@ -27,6 +28,8 @@ def main():
         command = [sys.executable, str(root / "run.py"), str(root / model),
                    "--freecad", args.freecad, "--out", str(args.out / name),
                    "--params", json.dumps(params)]
+        if args.require_adaptive:
+            command.append("--require-adaptive")
         process = subprocess.run(command, capture_output=True, text=True, timeout=150,
                                  creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
         report = json.loads((args.out / name / "result.json").read_text(encoding="utf-8"))
@@ -37,7 +40,7 @@ def main():
                 view = ET.fromstring(archive.read("GuiDocument.xml"))
             visible = [provider.get("name") for provider in view.findall("./ViewProviderData/ViewProvider")
                        if provider.find('./Properties/Property[@name="Visibility"]/Bool').get("value") == "true"]
-            if visible != [report["result_object"]] or not view.find("Camera").get("settings"):
+            if set(visible) != set(report["visible_objects"]) or not view.find("Camera").get("settings"):
                 raise RuntimeError(f"{name}: missing result visibility or camera")
             for stage in ("measurement", "native_roundtrip", "step_roundtrip"):
                 measured = report[stage]
@@ -58,6 +61,7 @@ def main():
     if hashlib.sha256(original.read_bytes()).hexdigest() != digest:
         raise RuntimeError("Revision changed the original document")
     run("invalid", "plate.py", {"hole_radius": 30}, success=False)
+    run("assembly", "assembly.py", {}, 24 + 2 * math.pi, [11, 7, 4])
     for index, source in enumerate(args.step):
         run(f"import-{index}", "import_step.py", {"source": str(Path(source).resolve(strict=True))})
     (args.out / "e2e.json").write_text(json.dumps(results, indent=2), encoding="utf-8")

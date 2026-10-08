@@ -31,6 +31,25 @@ class BRepTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 shape.getVolumeProperties()
 
+    def testAdaptiveVolumeRationalSpline(self):
+        # A rational quadratic profile extruded by one unit. Its volume is
+        # integral(z(t) * x'(t), t=0..1). Default OCCT integration errs by 0.6%.
+        weight = 10.0
+        curve = Part.BSplineCurve()
+        curve.buildFromPolesMultsKnots(
+            [App.Vector(0, 0, 1), App.Vector(0.5, 0, 10), App.Vector(1, 0, 1)],
+            [3, 3], [0.0, 1.0], False, 2, [1.0, weight, 1.0]
+        )
+        corners = [App.Vector(1, 0, 1), App.Vector(1, 0, 0),
+                   App.Vector(0, 0, 0), App.Vector(0, 0, 1)]
+        wire = Part.Wire([curve.toShape()] + [Part.makeLine(a, b) for a, b in zip(corners, corners[1:])])
+        solid = Part.Face(wire).extrude(App.Vector(0, 1, 0))
+        self.assertTrue(solid.isValid())
+        volume, error = solid.getVolumeProperties(1e-8)
+        # Independently integrated rational Bernstein polynomials, not mesh volume.
+        self.assertAlmostEqual(volume, 5.40871353861894, places=6)
+        self.assertLessEqual(error, 1e-8)
+
     def testProject(self):
         """
         This is a unit test for PR #13507
