@@ -79,7 +79,7 @@ def export_step(result, path):
             doc.recompute()
 
 
-def save_view(path, objects, result):
+def save_view(path, objects, result, box):
     """Persist a minimal GUI view for stable runtimes that hide headless files."""
     root = ET.Element("Document", SchemaVersion="1")
     providers = ET.SubElement(root, "ViewProviderData", Count=str(len(objects)))
@@ -89,7 +89,6 @@ def save_view(path, objects, result):
         properties = ET.SubElement(provider, "Properties", Count="1")
         prop = ET.SubElement(properties, "Property", name="Visibility", type="App::PropertyBool")
         ET.SubElement(prop, "Bool", value="true" if item in visible else "false")
-    box = Part.getShape(result).optimalBoundingBox(False, False)
     radius = max(box.DiagonalLength / 2, 1e-3)
     centre = box.Center
     distance = radius * 4
@@ -108,9 +107,12 @@ def save_view(path, objects, result):
 
 
 def measure(shape, require_adaptive=False):
-    if shape.isNull() or not shape.isValid() or not shape.Solids:
+    if shape.isNull() or not shape.isValid():
         raise ValueError("Model must contain valid solid geometry")
-    if any(not solid.isClosed() or solid.Volume <= 0 for solid in shape.Solids):
+    solids = shape.Solids
+    if not solids:
+        raise ValueError("Model must contain valid solid geometry")
+    if any(not solid.isClosed() for solid in solids):
         raise ValueError("Model must contain closed, positive-volume solids")
     # BoundBox may include loose spline control bounds or cached tessellation.
     box = shape.optimalBoundingBox(False, False)
@@ -118,23 +120,30 @@ def measure(shape, require_adaptive=False):
     if require_adaptive and not adaptive:
         raise ValueError("Adaptive volume requires a compiled fork with getVolumeProperties")
     eps = 1e-6
-    properties = [solid.getVolumeProperties(eps) for solid in shape.Solids] if adaptive else []
-    if any(not math.isfinite(value) or value <= 0 or not math.isfinite(error)
-           or error < 0 or error > eps for value, error in properties):
-        raise ValueError("Adaptive volume integration did not meet the requested precision")
-    volume = sum(value for value, _ in properties) if adaptive else sum(solid.Volume for solid in shape.Solids)
-    estimated_error = sum(abs(value * error) for value, error in properties) if adaptive else None
-    return {
-        "solids": len(shape.Solids),
-        "faces": len(shape.Faces),
-        "edges": len(shape.Edges),
+    if adaptive:
+        properties = [solid.getVolumeProperties(eps) for solid in solids]
+        if any(not math.isfinite(value) or value <= 0 or not math.isfinite(error)
+               or error < 0 or error > eps for value, error in properties):
+            raise ValueError("Adaptive volume integration did not meet the requested precision")
+        volume = sum(value for value, _ in properties)
+        estimated_error = sum(abs(value * error) for value, error in properties)
+    else:
+        volumes = [solid.Volume for solid in solids]
+        if any(not math.isfinite(value) or value <= 0 for value in volumes):
+            raise ValueError("Model must contain closed, positive-volume solids")
+        volume = sum(volumes)
+        estimated_error = None
+    return ({
+        "solids": len(solids),
+        "faces": shape.countElement("Face"),
+        "edges": shape.countElement("Edge"),
         "size_mm": [box.XLength, box.YLength, box.ZLength],
         "volume_mm3": volume,
         "volume_method": "OCCT adaptive per-solid integration" if adaptive else "FreeCAD default integration; unqualified",
         "volume_eps": eps if adaptive else None,
         "volume_estimated_error_mm3": estimated_error,
         "volume_warning": None if adaptive else "Default integration can overstate curved-solid volume; use --require-adaptive for measurements",
-    }
+    }, box)
 
 
 def main():
@@ -149,7 +158,7 @@ def main():
         if errors:
             raise ValueError(f"Invalid document objects: {errors}")
         require_adaptive = request.get("require_adaptive", False)
-        original = measure(Part.getShape(obj), require_adaptive)
+        original, original_box = measure(Part.getShape(obj), require_adaptive)
         tree = assembly_tree(obj) if getattr(obj, "HeadlessAssembly", False) else None
         visible = visible_results(obj)
         visible_names = [item.Name for item in visible]
@@ -158,16 +167,18 @@ def main():
                 item.Visibility = item in visible
         name = obj.Name
         doc.saveAs(str(out / "model.FCStd"))
-        save_view(out / "model.FCStd", doc.Objects, obj)
+        save_view(out / "model.FCStd", doc.Objects, obj, original_box)
         export_step(obj, out / "model.step")
         if tree:
             check_tree(tree, assembly_tree(obj))
         App.closeDocument(doc.Name)
         reopened = App.openDocument(str(out / "model.FCStd"))
         reopened.recompute()
-        native = measure(Part.getShape(reopened.getObject(name)), require_adaptive)
+        native, _ = measure(Part.getShape(reopened.getObject(name)), require_adaptive)
         if tree:
             check_tree(tree, assembly_tree(reopened.getObject(name)))
+        App.closeDocument(reopened.Name)
+        if tree:
             step_doc = App.newDocument("StepRoundtrip")
             Import.insert(str(out / "model.step"), step_doc.Name,
                           merge=False, useLinkGroup=False, mode=0)
@@ -176,9 +187,11 @@ def main():
             if len(roots) != 1:
                 raise ValueError("Assembly root count changed during STEP roundtrip")
             check_tree(tree, assembly_tree(roots[0]))
+            imported, _ = measure(Part.getShape(roots[0]), require_adaptive)
             App.closeDocument(step_doc.Name)
-        step = Part.read(str(out / "model.step"))
-        imported = measure(step, require_adaptive)
+        else:
+            step = Part.read(str(out / "model.step"))
+            imported, _ = measure(step, require_adaptive)
         # Default integration can change with STEP surface reparameterization.
         # Report every drift beyond numerical noise; 10 ppm is a serialization
         # sanity threshold, not a geometric tolerance or integration bound.
@@ -207,7 +220,6 @@ def main():
             "roundtrip_relative_volume_limit": 1e-5,
             "files": {"document": str(out / "model.FCStd"), "step": str(out / "model.step")},
         }
-        App.closeDocument(reopened.Name)
     except Exception as exc:
         report = {"ok": False, "error": str(exc), "traceback": traceback.format_exc()}
     (out / "result.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
