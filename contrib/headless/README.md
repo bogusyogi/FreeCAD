@@ -113,20 +113,22 @@ Windows 1.1.4. Private fixtures are never uploaded to CI.
 
 | Issue | Resolution & evidence |
 | --- | --- |
-| macOS accessibility crashes | Qt 6.8.3 crashes during imports/inspection. Qt 6.11.2 also crashes during accessibility inspection after parameter selection changes. Fork Mac CI builds a QtGui cache-lifetime patch; its compiled runtime must pass the same editor/selection-reset reproduction before this is considered fixed. |
+| macOS accessibility crashes | Qt 6.8.3 crashes during imports/inspection. Qt 6.11.2 also crashes during accessibility inspection after parameter selection changes. Fork Mac CI builds candidate QtGui & Cocoa plugin lifetime patches; the compiled runtime must pass the same editor/selection-reset reproduction before this is considered fixed. |
 | Headless documents opening hidden | Result visibility & fitted camera are persisted. Native generated plate, bead & assembly output were opened visually. |
 | Headless STEP import flattening assembly structure | Native `Import.insert`/`Import.export` replace flattened shape import/export. Component structure & placed bounds are checked on both roundtrips. |
 | STEP export dropping moved/rotated root placement | Transactional export normalization preserves world geometry & restores native placements. Nested placement fixture covers this. |
-| Default volume integration overstating a sculpted fixture by about 1.3% | Native Volume, Measure & Mass Properties use adaptive Gauss-Kronrod integration; `Shape.getVolumeProperties(eps)` exposes its estimated relative error. Compiled testing found legacy adaptive Gaussian integration also wrong for equivalent rational Bezier & BSpline solids. The direct Gauss-Kronrod probe matched independent volume & center values; compiled-fork qualification is still required. |
+| Default volume integration overstating a sculpted fixture by about 1.3% | Native Volume, Measure & Mass Properties use adaptive Gauss-Kronrod integration; `Shape.getVolumeProperties(eps)` exposes its estimated relative error. Compiled testing found legacy adaptive Gaussian integration also wrong for equivalent rational Bezier & BSpline solids. Linux native C++ regressions & the 3,561-test CLI suite pass, including independent volume, center & inertia checks. Mac & Windows compiled-fork qualification is still pending. |
 
 The earlier crash matches [FreeCAD #30720](https://github.com/FreeCAD/FreeCAD/issues/30720)
 & Qt's [accessibility reference-count fix](https://github.com/qt/qtbase/commit/b1ed5f656f064e553b33752f8e87d2f5b9553e38).
 The parameter-editor/selection-reset crash also occurs inside Qt accessibility,
 but has not been shown to share that earlier root cause. The candidate patch in
-`package/qt/` removes a cached accessibility element before invalidating it, so
-reentrant queries cannot retrieve that element during destruction. Mac CI rebuilds
-only QtGui from checksum-pinned Qt 6.11.2 source; other locked Qt libraries remain
-in place. A proposed Qt model-reset regression is included alongside the patch;
+`package/qt/` makes cache replacement & removal precede invalidation callbacks,
+& prevents synthetic table wrappers from deleting borrowed parent interfaces.
+These are source-level ownership defects, not yet proven causes of the FreeCAD
+crash. Mac CI rebuilds QtGui & the Cocoa platform plugin from checksum-pinned
+Qt 6.11.2 source; other locked Qt libraries remain in place. A proposed Qt
+model-reset regression is included alongside the patches;
 it has not been compiled. Runtime qualification requires the real FreeCAD editor
 & selection-reset reproduction. 26.3rc1 is an upstream release candidate, not a
 compiled binary of this fork.

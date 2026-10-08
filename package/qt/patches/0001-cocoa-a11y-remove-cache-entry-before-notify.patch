@@ -1,15 +1,41 @@
 --- a/src/gui/accessible/qaccessiblecache_mac.mm
 +++ b/src/gui/accessible/qaccessiblecache_mac.mm
-@@ -36,9 +36,10 @@ void QAccessibleCache::removeAccessibleElement(QAccessible::Id axid)
-     // Some QAccessibleInterface instances in the cache didn't get created in
-     // response to a query, but when we emit events. So we might get called with
-     // and axid for which we don't have any element (yet).
+@@ -17,7 +17,10 @@
+-    if (const auto it = accessibleElements.find(axid); it == accessibleElements.end()) {
+-        accessibleElements[axid] = element;
+-        [element retain];
+-        return true;
+-    } else if (it.value() != element) {
+-        auto *oldElement = it.value();
+-        // this might invalidate the iterator
++    if (accessibleElements.value(axid) == element)
++        return false;
++
++    // Retain the replacement before changing the map. invalidate() can post an
++    // accessibility notification which re-enters this cache.
++    [element retain];
++    auto *oldElement = accessibleElements.take(axid);
++    accessibleElements.insert(axid, element);
++
++    if (oldElement) {
+@@ -26,4 +28,0 @@
+-
+-        accessibleElements[axid] = element;
+-        [element retain];
+-        return true;
+@@ -31 +30 @@
+-    return false;
++    return true;
+@@ -39 +38,3 @@
 -    if (QT_MANGLE_NAMESPACE(QMacAccessibilityElement) *element = elementForId(axid)) {
 +    // invalidate() posts an accessibility notification that may re-enter the cache.
 +    // Do not expose an element after its id has been invalidated.
 +    if (QT_MANGLE_NAMESPACE(QMacAccessibilityElement) *element = accessibleElements.take(axid)) {
-         [element invalidate];
+@@ -41 +41,0 @@
 -        accessibleElements.remove(axid);
-         [element release];
-     }
- }
+--- a/src/gui/accessible/qaccessiblecache_p.h
++++ b/src/gui/accessible/qaccessiblecache_p.h
+@@ -72,0 +73 @@
++    void removeAccessibleElement(QAccessible::Id axid);
+@@ -86 +86,0 @@
+-    void removeAccessibleElement(QAccessible::Id axid);

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: LGPL-2.1-or-later
-# Build & overlay QtGui's Cocoa accessibility cache fix inside a locked Pixi env.
+# Build & overlay Cocoa accessibility lifetime fixes inside a locked Pixi env.
 # Invoke before FreeCAD CMake configure; final app-bundle signing remains unchanged.
 set -euo pipefail
 
@@ -8,13 +8,16 @@ readonly qt_version='6.11.2'
 readonly qt_source_sha256='5b2e00eccaf5a4d8c14134ffa0ea8dfd0a35ae1ffc7f8d87fa4305a1ed23cf22'
 readonly vulkan_headers_version='1.4.357'
 readonly vulkan_headers_sha256='7dc0dbcf1d49dd3d7da3761c251c6097dfbaac475321a4a8a99269d3d5abecdc'
+readonly glib_version='2.90.0'
+readonly glib_headers_sha256='c80cdb6c599de22c9779a4b9b9a76923ed27c697c3416aec171413d2cdddb66a'
+readonly glib_headers_url='https://conda.anaconda.org/conda-forge/osx-arm64/glib-2.90.0-h37000cc_0.conda'
 readonly qt_source_url="https://download.qt.io/official_releases/qt/6.11/6.11.2/submodules/qtbase-everywhere-src-${qt_version}.tar.xz"
 readonly vulkan_headers_url="https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/v${vulkan_headers_version}.tar.gz"
 readonly overlay_root="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/freecad-qtgui-overlay-${qt_version}"
-readonly patch_file="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/patches/0001-cocoa-a11y-remove-cache-entry-before-notify.patch"
+readonly patch_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/patches"
 
 fail() {
-    printf 'QtGui overlay: %s\n' "$*" >&2
+    printf 'Qt accessibility overlay: %s\n' "$*" >&2
     exit 1
 }
 
@@ -59,10 +62,27 @@ normalize_rpaths() {
     done < <(rpaths "$prefix_binary")
 }
 
+check_exported_symbols() {
+    local original="$1"
+    local replacement="$2"
+    local label="$3"
+    local missing="$overlay_root/${label}-missing-symbols.txt"
+
+    /usr/bin/nm -gU "$original" | awk 'NF { print $NF }' | LC_ALL=C sort -u > "$overlay_root/${label}-original-symbols.txt"
+    /usr/bin/nm -gU "$replacement" | awk 'NF { print $NF }' | LC_ALL=C sort -u > "$overlay_root/${label}-replacement-symbols.txt"
+    LC_ALL=C comm -23 "$overlay_root/${label}-original-symbols.txt" "$overlay_root/${label}-replacement-symbols.txt" > "$missing"
+    if [[ -s "$missing" ]]; then
+        cat "$missing" >&2
+        fail "$label lost exported symbols from locked package"
+    fi
+}
+
 [[ "$(uname -s)" == Darwin ]] || fail 'requires macOS'
 [[ "$(uname -m)" == arm64 ]] || fail 'requires arm64'
 [[ -n "${CONDA_PREFIX:-}" ]] || fail 'requires active Pixi/Conda environment'
-[[ -f "$patch_file" ]] || fail "missing patch: $patch_file"
+for patch_name in 0001-cocoa-a11y-remove-cache-entry-before-notify.patch 0003-cocoa-a11y-preserve-borrowed-table-interfaces.patch; do
+    [[ -f "$patch_dir/$patch_name" ]] || fail "missing patch: $patch_name"
+done
 [[ -x "${CONDA_PREFIX}/bin/cmake" ]] || fail 'missing CMake in active environment'
 [[ -x "${CONDA_PREFIX}/bin/ninja" ]] || fail 'missing Ninja in active environment'
 [[ -x /usr/bin/nm ]] || fail 'missing macOS nm'
@@ -82,6 +102,9 @@ export MACOSX_DEPLOYMENT_TARGET
 
 prefix_gui="${CONDA_PREFIX}/lib/libQt6Gui.6.dylib"
 prefix_core="${CONDA_PREFIX}/lib/libQt6Core.6.dylib"
+prefix_cocoa="${CONDA_PREFIX}/lib/qt6/plugins/platforms/libqcocoa.dylib"
+[[ -f "$prefix_cocoa" ]] || fail 'active environment lacks Cocoa platform plugin'
+prefix_core_sha256="$(shasum -a 256 "$prefix_core" | awk '{print $1}')"
 prefix_gui_id="$(otool -D "$prefix_gui" | tail -n 1 | tr -d '[:space:]')"
 prefix_core_id="$(otool -D "$prefix_core" | tail -n 1 | tr -d '[:space:]')"
 [[ "$prefix_gui_id" == '@rpath/libQt6Gui.6.dylib' ]] || fail "unexpected prefix QtGui install name: $prefix_gui_id"
@@ -104,6 +127,8 @@ source_root="$overlay_root/qtbase-everywhere-src-${qt_version}"
 vulkan_headers_archive="$overlay_root/Vulkan-Headers-${vulkan_headers_version}.tar.gz"
 vulkan_headers_root="$overlay_root/Vulkan-Headers-${vulkan_headers_version}"
 vulkan_include_dir="$vulkan_headers_root/include"
+glib_headers_archive="$overlay_root/glib-${glib_version}-headers.conda"
+glib_include_dir="$overlay_root/glib-${glib_version}-include"
 build_root="$overlay_root/build"
 targets_file="$overlay_root/ninja-targets.txt"
 symbols_file="$overlay_root/qtgui-symbols.txt"
@@ -148,12 +173,52 @@ vulkan_header_patch="$(awk '/^#define VK_HEADER_VERSION / { print $3; exit }' "$
 [[ "$vulkan_header_patch" == "${vulkan_headers_version##*.}" ]] \
     || fail "Vulkan-Headers version mismatch: $vulkan_header_patch"
 
-if ! patch --batch --dry-run --forward -p1 -d "$source_root" < "$patch_file" >/dev/null; then
-    grep -Fq 'accessibleElements.take(axid)' "$source_root/src/gui/accessible/qaccessiblecache_mac.mm" \
-        || fail 'accessibility patch does not apply'
-else
-    patch --batch --forward -p1 -d "$source_root" < "$patch_file"
+# libglib supplies public headers, but glibconfig.h lives in its matching
+# development package. Extract only that generated header to CI scratch;
+# the environment's libraries & package metadata remain untouched.
+glib_pc="${CONDA_PREFIX}/lib/pkgconfig/glib-2.0.pc"
+[[ -f "$glib_pc" ]] || fail 'missing locked GLib version contract'
+[[ "$(awk '/^Version:/ { print $2; exit }' "$glib_pc")" == "$glib_version" ]] \
+    || fail "requires locked GLib ${glib_version}"
+if [[ ! -f "$glib_headers_archive" ]]; then
+    curl --fail --location --retry 3 --output "$glib_headers_archive" "$glib_headers_url"
 fi
+[[ "$(shasum -a 256 "$glib_headers_archive" | awk '{print $1}')" == "$glib_headers_sha256" ]] \
+    || fail 'GLib development package SHA-256 mismatch'
+"${CONDA_PREFIX}/bin/python" - "$glib_headers_archive" "$glib_include_dir" "$CONDA_PREFIX" <<'PY'
+import io
+from pathlib import Path
+import subprocess
+import sys
+import tarfile
+import zipfile
+
+archive, output, prefix = sys.argv[1:]
+with zipfile.ZipFile(archive) as package:
+    payloads = [name for name in package.namelist() if name.startswith("pkg-") and name.endswith(".tar.zst")]
+    if len(payloads) != 1:
+        raise SystemExit("unexpected GLib development package layout")
+    payload = subprocess.run(
+        [str(Path(prefix) / "bin/zstd"), "--decompress", "--stdout"],
+        input=package.read(payloads[0]), capture_output=True, check=True,
+    ).stdout
+with tarfile.open(fileobj=io.BytesIO(payload)) as contents:
+    header = contents.extractfile("lib/glib-2.0/include/glibconfig.h")
+    if header is None:
+        raise SystemExit("GLib development package lacks glibconfig.h")
+    output_path = Path(output)
+    output_path.mkdir(parents=True, exist_ok=True)
+    (output_path / "glibconfig.h").write_bytes(header.read())
+PY
+
+for patch_name in 0001-cocoa-a11y-remove-cache-entry-before-notify.patch 0003-cocoa-a11y-preserve-borrowed-table-interfaces.patch; do
+    patch_file="$patch_dir/$patch_name"
+    if patch --batch --dry-run --forward -p1 -d "$source_root" < "$patch_file" >/dev/null; then
+        patch --batch --forward -p1 -d "$source_root" < "$patch_file"
+    elif ! patch --batch --dry-run --reverse -p1 -d "$source_root" < "$patch_file" >/dev/null; then
+        fail "accessibility patch does not apply: $patch_name"
+    fi
+done
 
 grep -Fq 'accessibleElements.take(axid)' "$source_root/src/gui/accessible/qaccessiblecache_mac.mm" \
     || fail 'patched source verification failed'
@@ -187,6 +252,7 @@ grep -Fq 'accessibleElements.take(axid)' "$source_root/src/gui/accessible/qacces
     -DFEATURE_openssl_linked=ON \
     -DFEATURE_vulkan=ON \
     -DVulkan_INCLUDE_DIR:PATH="$vulkan_include_dir" \
+    -DGLIB2_INTERNAL_INCLUDE_DIR:PATH="$glib_include_dir" \
     -DQT_BUILD_EXAMPLES=OFF \
     -DQT_BUILD_TESTS=OFF
 
@@ -232,7 +298,8 @@ for candidate in Qt6Gui Gui; do
     fi
 done
 [[ -n "$qt_gui_target" ]] || fail 'configured qtbase has no QtGui build target'
-"${CONDA_PREFIX}/bin/cmake" --build "$build_root" --target "$qt_gui_target"
+grep -Eq '^QCocoaIntegrationPlugin:' "$targets_file" || fail 'configured qtbase has no Cocoa plugin build target'
+"${CONDA_PREFIX}/bin/cmake" --build "$build_root" --target "$qt_gui_target" QCocoaIntegrationPlugin
 
 built_gui="$build_root/lib/libQt6Gui.${qt_version}.dylib"
 [[ -f "$built_gui" ]] || fail "missing built QtGui dylib: $built_gui"
@@ -245,19 +312,40 @@ normalize_rpaths "$built_gui" "$prefix_gui"
 diff -u <(rpaths "$prefix_gui") <(rpaths "$built_gui") \
     || fail 'QtGui runtime rpaths differ from locked prefix'
 
-# This source-only lifetime change stays within QtGui's existing ABI. Keep Core,
-# QtWidgets, & libqcocoa from locked Pixi package untouched.
+built_cocoa="$build_root/plugins/platforms/libqcocoa.dylib"
+[[ -f "$built_cocoa" ]] || fail "missing built Cocoa plugin: $built_cocoa"
+[[ "$(otool -D "$built_cocoa" | sed '1d')" == "$(otool -D "$prefix_cocoa" | sed '1d')" ]] \
+    || fail 'Cocoa plugin install name differs from locked prefix'
+normalize_rpaths "$built_cocoa" "$prefix_cocoa"
+diff -u <(rpaths "$prefix_cocoa") <(rpaths "$built_cocoa") \
+    || fail 'Cocoa plugin runtime rpaths differ from locked prefix'
+check_exported_symbols "$prefix_gui" "$built_gui" qtgui
+check_exported_symbols "$prefix_cocoa" "$built_cocoa" qcocoa
+
+# Keep Core & QtWidgets from the locked Pixi package. Only the two libraries
+# containing patched accessibility code are replaced.
 cp "$built_gui" "${CONDA_PREFIX}/lib/libQt6Gui.${qt_version}.dylib"
 ln -sfn "libQt6Gui.${qt_version}.dylib" "${CONDA_PREFIX}/lib/libQt6Gui.6.dylib"
 ln -sfn "libQt6Gui.${qt_version}.dylib" "${CONDA_PREFIX}/lib/libQt6Gui.dylib"
+cp "$built_cocoa" "$prefix_cocoa"
 
 /usr/bin/nm -gU "${CONDA_PREFIX}/lib/libQt6Gui.6.dylib" > "$symbols_file"
 grep -Fq '__ZN16QAccessibleCache23removeAccessibleElementEj' "$symbols_file" \
     || fail 'overlaid QtGui lacks QAccessibleCache::removeAccessibleElement'
 [[ "$(otool -D "$prefix_core" | tail -n 1 | tr -d '[:space:]')" == "$prefix_core_id" ]] \
     || fail 'locked QtCore install name changed'
-otool -L "${CONDA_PREFIX}/lib/qt6/plugins/platforms/libqcocoa.dylib" > "$overlay_root/qcocoa-dependencies.txt"
+[[ "$(shasum -a 256 "$prefix_core" | awk '{print $1}')" == "$prefix_core_sha256" ]] \
+    || fail 'locked QtCore binary changed'
+otool -L "$prefix_cocoa" > "$overlay_root/qcocoa-dependencies.txt"
 grep -Fq '@rpath/libQt6Gui.6.dylib' "$overlay_root/qcocoa-dependencies.txt" \
     || fail 'Cocoa plugin no longer links QtGui overlay'
-printf 'QtGui overlay ready: Qt %s, source SHA-256 %s, deployment target %s, target %s\n' \
+"${CONDA_PREFIX}/bin/python" - "$prefix_gui" "$prefix_cocoa" <<'PY'
+import ctypes
+import os
+import sys
+
+handles = [ctypes.CDLL(path, mode=os.RTLD_NOW | os.RTLD_LOCAL) for path in sys.argv[1:]]
+print("QtGui & Cocoa plugin loaded against locked dependencies")
+PY
+printf 'Qt accessibility overlay ready: Qt %s, source SHA-256 %s, deployment target %s, target %s\n' \
     "$qt_version" "$qt_source_sha256" "$MACOSX_DEPLOYMENT_TARGET" "$qt_gui_target"
