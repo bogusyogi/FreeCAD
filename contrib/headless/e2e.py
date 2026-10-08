@@ -9,6 +9,8 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
+import zipfile
 
 
 def main():
@@ -31,6 +33,12 @@ def main():
         if report["ok"] != success or (process.returncode == 0) != success:
             raise RuntimeError(f"{name}: {process.stdout}\n{process.stderr}")
         if success:
+            with zipfile.ZipFile(report["files"]["document"]) as archive:
+                view = ET.fromstring(archive.read("GuiDocument.xml"))
+            visible = [provider.get("name") for provider in view.findall("./ViewProviderData/ViewProvider")
+                       if provider.find('./Properties/Property[@name="Visibility"]/Bool').get("value") == "true"]
+            if visible != [report["result_object"]] or not view.find("Camera").get("settings"):
+                raise RuntimeError(f"{name}: missing result visibility or camera")
             for stage in ("measurement", "native_roundtrip", "step_roundtrip"):
                 measured = report[stage]
                 if expected_volume is not None and not math.isclose(measured["volume_mm3"], expected_volume, abs_tol=1e-5, rel_tol=1e-9):

@@ -6,9 +6,38 @@ import os
 from pathlib import Path
 import runpy
 import traceback
+import xml.etree.ElementTree as ET
+import zipfile
 
 import FreeCAD as App
 import Part
+
+
+def save_view(path, objects, result):
+    """Persist a minimal GUI view for stable runtimes that hide headless files."""
+    root = ET.Element("Document", SchemaVersion="1")
+    providers = ET.SubElement(root, "ViewProviderData", Count=str(len(objects)))
+    for item in objects:
+        provider = ET.SubElement(providers, "ViewProvider", name=item.Name)
+        properties = ET.SubElement(provider, "Properties", Count="1")
+        prop = ET.SubElement(properties, "Property", name="Visibility", type="App::PropertyBool")
+        ET.SubElement(prop, "Bool", value="true" if item == result else "false")
+    box = result.Shape.optimalBoundingBox(False, False)
+    radius = max(box.DiagonalLength / 2, 1e-3)
+    centre = box.Center
+    distance = radius * 4
+    offset = distance / (3 ** 0.5)
+    camera = ("OrthographicCamera {\n"
+              f"position {centre.x + offset} {centre.y - offset} {centre.z + offset}\n"
+              "orientation 0.74290609 0.30772209 0.59447283 1.2171158\n"
+              f"nearDistance {distance - radius * 2}\nfarDistance {distance + radius * 2}\n"
+              f"focalDistance {distance}\nheight {radius * 2.6}\n}}\n")
+    ET.SubElement(root, "Camera", settings=camera)
+    # FreeCADCmd writes no GuiDocument.xml, including when revising a GUI file.
+    with zipfile.ZipFile(path, "a", compression=zipfile.ZIP_DEFLATED) as archive:
+        if "GuiDocument.xml" in archive.namelist():
+            raise ValueError("Unexpected GUI metadata in headless output")
+        archive.writestr("GuiDocument.xml", ET.tostring(root, encoding="utf-8", xml_declaration=True))
 
 
 def measure(shape):
@@ -46,6 +75,7 @@ def main():
                 item.Visibility = item == obj
         name = obj.Name
         doc.saveAs(str(out / "model.FCStd"))
+        save_view(out / "model.FCStd", doc.Objects, obj)
         Part.export([obj], str(out / "model.step"))
         App.closeDocument(doc.Name)
         reopened = App.openDocument(str(out / "model.FCStd"))

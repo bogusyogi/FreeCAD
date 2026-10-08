@@ -40,6 +40,8 @@ overwrites. Model scripts run as the current user, not in a security sandbox.
 & `Part::Cut` objects. Dimensions & hole positions use FreeCAD expressions.
 Open `model.FCStd` in FreeCAD to edit the feature tree directly; no custom Python
 proxy or addon is needed to reopen it.
+The runner stores result visibility & a fitted isometric camera in native GUI
+metadata so FreeCAD 1.1.4 opens headless output visibly, with construction hidden.
 
 `revise_plate.py` reopens that document, changes length/thickness, verifies
 expressions recompute, then adds another native cylinder/cut feature. Pass
