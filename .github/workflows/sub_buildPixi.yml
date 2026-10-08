@@ -55,6 +55,23 @@ on:
     outputs:
       reportFile:
         value: ${{ jobs.Build.outputs.reportFile }}
+  workflow_dispatch:
+    inputs:
+      artifactBasename:
+        description: Artifact name prefix
+        required: false
+        default: FreeCAD-fork
+        type: string
+      targetOS:
+        description: Runner platform to build
+        required: false
+        default: macos-latest
+        type: choice
+        options:
+          - macos-latest
+          - ubuntu-latest
+          - windows-2022
+          - all
 
 permissions:
   contents: read
@@ -90,7 +107,7 @@ jobs:
       max-parallel: 6
       fail-fast: false
       matrix:
-        os: [windows-2022, ubuntu-latest, macos-latest]
+        os: ${{ (inputs.targetOS != '' && inputs.targetOS != 'all') && fromJSON(format('["{0}"]', inputs.targetOS)) || fromJSON('["windows-2022","ubuntu-latest","macos-latest"]') }}
 
     steps:
     - name: Report result of previous run
@@ -202,7 +219,7 @@ jobs:
           -DRELATIVE_RPATH=ON \
           -DINSTALL_TO_SITEPACKAGES=ON \
           -DBUILD_DYNAMIC_LINK_PYTHON=OFF \
-          -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=13.3
 
     - name: CMake Build
       if: "!inputs.skipBuild"
@@ -291,7 +308,7 @@ jobs:
       if: github.repository == 'bogusyogi/FreeCAD' && github.event_name == 'workflow_dispatch' && runner.os == 'macOS' && !inputs.skipBuild
       env:
         BUILD_TAG: dev-${{ github.sha }}
-        MACOS_DEPLOYMENT_TARGET: '11.0'
+        MACOS_DEPLOYMENT_TARGET: '13.3'
         MACOS_SIGN_RELEASE: 'false'
         UPLOAD_RELEASE: 'false'
       run: |
@@ -343,7 +360,7 @@ jobs:
         name: FreeCAD-macOS-test-runtime-${{ github.sha }}
         retention-days: 7
         if-no-files-found: error
-        path: package/bundle/osx/FreeCAD_dev-${{ github.sha }}-macOS11-arm64.dmg
+        path: package/bundle/osx/FreeCAD_dev-${{ github.sha }}-macOS13-arm64.dmg
 
     - name: FreeCAD GUI tests on install
       # if: runner.os == 'Linux' && !inputs.skipBuild
