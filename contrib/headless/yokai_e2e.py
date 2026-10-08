@@ -86,10 +86,13 @@ def main():
         raise RuntimeError("Independent Yokai revision changed original FCStd")
     if _digest(source) != source_digest:
         raise RuntimeError("Independent Yokai revision changed source STEP")
-    if not revision["after_depth_mm"] > revision["before_depth_mm"]:
-        raise RuntimeError("Reopened Yokai parameter did not increase recess depth")
+    recess_area = operation["recess"]["size_mm"] ** 2
+    expected_revision_delta = recess_area * (
+        revision["before_depth_mm"] - revision["after_depth_mm"])
+    if not _close(revision["output_volume_delta_mm3"], expected_revision_delta, 1e-4):
+        raise RuntimeError("Reopened Yokai deepening volume delta is incorrect")
     if not revision["removed_mm3"] > operation["recess"]["removed_mm3"]:
-        raise RuntimeError("Reopened Yokai parameter did not change native geometry")
+        raise RuntimeError("Reopened Yokai deepening did not increase removed geometry")
     for stage in ("measurement", "native_roundtrip", "step_roundtrip"):
         if initial[stage]["solids"] != revised[stage]["solids"]:
             raise RuntimeError(f"Yokai solid count changed after parameter edit: {stage}")
@@ -97,14 +100,55 @@ def main():
             raise RuntimeError(f"Yokai external bounds changed after parameter edit: {stage}")
     if not _same_signatures(revision["mount_holes"], operation["mount_holes"]):
         raise RuntimeError("Yokai mount-hole references changed after parameter edit")
+    revised_document = Path(revised["files"]["document"])
+    revised_document_digest = _digest(revised_document)
+    shallow = _run(root, args.out, "shallow-revision", "revise_yokai_scale.py", freecad,
+                    {"document": str(revised_document), "recess_depth": 0.25}, args.require_adaptive)
+    shallow_revision = json.loads((args.out / "shallow-revision" / "yokai-revision.json").read_text(encoding="utf-8"))
+    if _digest(revised_document) != revised_document_digest:
+        raise RuntimeError("Reopened Yokai shallowing changed deepened FCStd")
+    shallow_delta = recess_area * (shallow_revision["before_depth_mm"] - shallow_revision["after_depth_mm"])
+    if not _close(shallow_revision["output_volume_delta_mm3"], shallow_delta, 1e-4):
+        raise RuntimeError("Reopened Yokai shallowing volume delta is incorrect")
+    if not shallow_revision["removed_mm3"] < revision["removed_mm3"]:
+        raise RuntimeError("Reopened Yokai shallowing did not decrease removed geometry")
+
+    shallow_document = Path(shallow["files"]["document"])
+    shallow_document_digest = _digest(shallow_document)
+    unchanged = _run(root, args.out, "unchanged-revision", "revise_yokai_scale.py", freecad,
+                      {"document": str(shallow_document), "recess_depth": 0.25}, args.require_adaptive)
+    unchanged_revision = json.loads(
+        (args.out / "unchanged-revision" / "yokai-revision.json").read_text(encoding="utf-8"))
+    if _digest(shallow_document) != shallow_document_digest:
+        raise RuntimeError("Reopened Yokai unchanged revision changed shallow FCStd")
+    if not _close(unchanged_revision["output_volume_delta_mm3"], 0.0, 1e-4):
+        raise RuntimeError("Reopened Yokai unchanged depth changed output volume")
+    if not _close(unchanged_revision["removed_mm3"], shallow_revision["removed_mm3"], 1e-4):
+        raise RuntimeError("Reopened Yokai unchanged depth changed native geometry")
+
+    unchanged_document = Path(unchanged["files"]["document"])
+    unchanged_document_digest = _digest(unchanged_document)
+    endpoint = _run(root, args.out, "endpoint-revision", "revise_yokai_scale.py", freecad,
+                     {"document": str(unchanged_document), "recess_depth": 1.0}, args.require_adaptive)
+    endpoint_revision = json.loads((args.out / "endpoint-revision" / "yokai-revision.json").read_text(encoding="utf-8"))
+    if _digest(unchanged_document) != unchanged_document_digest:
+        raise RuntimeError("Reopened Yokai endpoint revision changed unchanged FCStd")
+    endpoint_delta = recess_area * (endpoint_revision["before_depth_mm"] - endpoint_revision["after_depth_mm"])
+    if not _close(endpoint_revision["output_volume_delta_mm3"], endpoint_delta, 1e-4):
+        raise RuntimeError("Reopened Yokai endpoint volume delta is incorrect")
+
     lower = _run(root, args.out, "lower-bound", "yokai_scale.py", freecad,
                  {"source": str(source), "recess_depth": 0.1}, args.require_adaptive)
     upper = _run(root, args.out, "upper-bound", "yokai_scale.py", freecad,
                  {"source": str(source), "recess_depth": 1.0}, args.require_adaptive)
     if not lower["measurement"]["volume_mm3"] > upper["measurement"]["volume_mm3"]:
         raise RuntimeError("Yokai depth boundaries did not produce ordered geometry")
-    too_deep = _expect_failure(root, args.out, "too-deep", "yokai_scale.py", freecad,
-                               {"source": str(source), "recess_depth": 1.01}, args.require_adaptive)
+    endpoint_document = Path(endpoint["files"]["document"])
+    endpoint_document_digest = _digest(endpoint_document)
+    too_deep = _expect_failure(root, args.out, "too-deep-revision", "revise_yokai_scale.py", freecad,
+                               {"document": str(endpoint_document), "recess_depth": 1.01}, args.require_adaptive)
+    if _digest(endpoint_document) != endpoint_document_digest:
+        raise RuntimeError("Rejected Yokai revision changed endpoint FCStd")
     if "0.1..1.0 mm" not in too_deep:
         raise RuntimeError("Yokai too-deep rejection did not report operation limit")
     if _digest(source) != source_digest:
@@ -119,6 +163,9 @@ def main():
         "revised_result": str(args.out / "revised" / "result.json"),
         "operation": operation,
         "revision": revision,
+        "shallow_revision": shallow_revision,
+        "unchanged_revision": unchanged_revision,
+        "endpoint_revision": endpoint_revision,
         "boundary_depths_mm": [0.1, 1.0],
         "too_deep_error": too_deep,
     }

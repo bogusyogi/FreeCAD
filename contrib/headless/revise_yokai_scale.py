@@ -142,7 +142,8 @@ def build(params):
     control.RecessDepth = depth
     doc.recompute()
     _valid_solid(result.Shape)
-    expected_removed = control.RecessSize.Value ** 2 * depth
+    recess_area = control.RecessSize.Value ** 2
+    expected_removed = recess_area * depth
     intersection = source.Shape.common(tool.Shape)
     removed = source.Shape.Volume - result.Shape.Volume
     if abs(intersection.Volume - expected_removed) > 1e-5 or abs(removed - intersection.Volume) > 1e-4:
@@ -169,15 +170,20 @@ def build(params):
     _valid_solid(output_shape)
     if len(output_shape.Solids) != len(evidence["other_parts"]) + len(result.Shape.Solids):
         raise ValueError("Reopened Yokai output lost assembly solids")
-    if not output_shape.Volume < output_before:
-        raise ValueError("Reopened Yokai parameter did not update output geometry")
+    expected_volume_delta = recess_area * (before_depth - depth)
+    volume_delta = output_shape.Volume - output_before
+    if abs(volume_delta - expected_volume_delta) > 1e-4:
+        raise ValueError("Reopened Yokai output volume does not match revised recess depth")
     revision = {"document": str(document), "before_depth_mm": before_depth, "after_depth_mm": depth,
                 "intersection_mm3": intersection.Volume, "removed_mm3": removed,
                 "mount_holes": current_mounts, "other_parts": untouched,
                 "mating_probe_symmetric_difference_mm3": mating_delta,
                 "output_volume_before_mm3": output_before,
-                "output_volume_after_mm3": output_shape.Volume}
-    root.addProperty("App::PropertyString", "YokaiRevisionEvidence", "Yokai")
+                "output_volume_after_mm3": output_shape.Volume,
+                "expected_output_volume_delta_mm3": expected_volume_delta,
+                "output_volume_delta_mm3": volume_delta}
+    if "YokaiRevisionEvidence" not in root.PropertiesList:
+        root.addProperty("App::PropertyString", "YokaiRevisionEvidence", "Yokai")
     root.YokaiRevisionEvidence = json.dumps(revision, separators=(",", ":"))
     _request_output().joinpath("yokai-revision.json").write_text(json.dumps(revision, indent=2), encoding="utf-8")
     return output

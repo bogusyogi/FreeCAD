@@ -76,10 +76,11 @@ python3 contrib/headless/yokai_e2e.py \
   --out /tmp/yokai-native-e2e
 ```
 
-This creates `initial/model.FCStd` & `revised/model.FCStd`, plus STEP exports.
-Separate FreeCAD processes create a 0.5 mm recess, reopen the saved document &
-change depth to 0.75 mm. Boundary depths 0.1 & 1.0 mm are exercised; 1.01 mm is
-rejected. In FreeCAD, select `YokaiParameters` & edit `RecessDepth`; native
+This creates native FCStd documents & STEP exports. Separate FreeCAD processes
+create a 0.5 mm recess, then reopen successive saved revisions at 0.75, 0.25,
+unchanged 0.25 & 1.0 mm. Each input document's hash is checked afterward.
+Boundary depths 0.1 & 1.0 mm are exercised; 1.01 mm is rejected. In FreeCAD,
+select `YokaiParameters` & edit `RecessDepth`; native
 expressions update the recess without loading an addon. Source STEP & initial
 FCStd hashes must remain unchanged. Inspect `yokai-e2e.json` for results. This
 exercise passed on official macOS 26.3rc1 & Windows 1.1.4. A macOS GUI console
