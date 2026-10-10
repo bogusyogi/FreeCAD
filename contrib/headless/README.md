@@ -38,6 +38,37 @@ malformed parameters, launch errors, timeouts & missing worker output.
 The output directory must not exist, preventing stale-success results & accidental
 overwrites. Model scripts run as the current user, not in a security sandbox.
 
+## Export a saved assembly to GLB
+
+`export_gltf.py` opens an existing FCStd in FreeCADCmd, tessellates native BReps
+before calling the native OCCT glTF writer, and checks that every shaped leaf
+keeps its label in the GLB. App::Part nesting & placements are retained. Length
+units are explicit in the sidecar: FCStd measurements use mm; GLB coordinates
+use m with glTF's Y-up convention. The output GLB, metadata JSON, and optional
+color map must not already exist.
+
+```powershell
+py -3.11 contrib/headless/export_gltf.py model.FCStd `
+  --freecad 'C:\Program Files\FreeCAD 1.1\bin\FreeCADCmd.exe' `
+  --out model.glb `
+  --metadata model.metadata.json `
+  --color-map colors.json `
+  --source-step original.step
+```
+
+Without a color map, saved `GuiDocument.xml` appearance is used when present;
+otherwise the sidecar records use of a neutral fallback. Color maps have
+`schema: 1`, a `materials` object keyed by exact component label, `color_srgb`
+RGBA values, and optional provenance fields. Mechanism metadata reports only
+analytic pivot evidence found in native geometry; joint semantics & stop angles
+are omitted unless separate measured evidence is supplied.
+
+Check an export without additional packages:
+
+```powershell
+py -3.11 contrib/headless/test_export_gltf.py model.glb model.metadata.json
+```
+
 ## Editable features
 
 `plate.py` produces ordinary `Part::Box`, `Part::Cylinder`, `Part::MultiFuse`
